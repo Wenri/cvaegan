@@ -13,6 +13,14 @@ from models import *
 from datasets import load_data, mnist, svhn
 
 models = {
+    'vae': VAE,
+    'dcgan': DCGAN,
+    'improved': ImprovedGAN,
+    'resnet': ResNetGAN,
+    'began': BEGAN,
+    'wgan': WGAN,
+    'lsgan': LSGAN,
+    'cvae': CVAE,
     'cvaegan': CVAEGAN
 }
 

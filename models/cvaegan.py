@@ -223,12 +223,12 @@ class CVAEGAN(CondBaseModel):
     def train_on_batch(self, batch, index):
         x_r, c_r = batch
         batchsize = len(x_r)
-        z_p = np.random.uniform(-1, 1, size=(len(x_r), self.z_dims))
+        # z_p = np.random.uniform(-1, 1, size=(len(x_r), self.z_dims))
 
         _, _, _, _, gen_loss, dis_loss, gen_acc, dis_acc = self.sess.run(
             (self.gen_trainer, self.enc_trainer, self.dis_trainer, self.cls_trainer, self.gen_loss, self.dis_loss, self.gen_acc, self.dis_acc),
             feed_dict={
-                self.x_r: x_r, self.z_p: z_p, self.c_r: c_r,
+                self.x_r: x_r, self.c_r: c_r,
                 self.z_test: self.test_data['z_test'], self.c_test: self.test_data['c_test']
             }
         )
@@ -238,7 +238,7 @@ class CVAEGAN(CondBaseModel):
             summary = self.sess.run(
                 self.summary,
                 feed_dict={
-                    self.x_r: x_r, self.z_p: z_p, self.c_r: c_r,
+                    self.x_r: x_r, self.c_r: c_r,
                     self.z_test: self.test_data['z_test'], self.c_test: self.test_data['c_test']
                 }
             )
@@ -257,12 +257,9 @@ class CVAEGAN(CondBaseModel):
         )
         return x_sample
 
-    def make_test_data(self):
-        c_t = np.identity(self.num_attrs)
-        c_t = np.tile(c_t, (self.test_size, 1))
-        z_t = np.random.normal(size=(self.test_size, self.z_dims))
-        z_t = np.tile(z_t, (1, self.num_attrs))
-        z_t = z_t.reshape((self.test_size * self.num_attrs, self.z_dims))
+    def make_test_data(self, datasets = None):
+        if datasets is not None:
+            self.test_data = datasets.
         self.test_data = {'z_test': z_t, 'c_test': c_t}
 
     def build_model(self):
@@ -281,16 +278,16 @@ class CVAEGAN(CondBaseModel):
         z_f = sample_normal(z_avg, z_log_var)
         x_f = self.f_gen(z_f, self.c_r)
 
-        self.z_p = tf.placeholder(tf.float32, shape=(None, self.z_dims))
-        x_p = self.f_gen(self.z_p, self.c_r)
-        
+        #self.z_p = tf.placeholder(tf.float32, shape=(None, self.z_dims))
+        #x_p = self.f_gen(self.z_p, self.c_r)
+
         c_r_pred, f_C_r = self.f_cls(self.x_r)
         c_f, f_C_f = self.f_cls(x_f)
-        c_p, f_C_p = self.f_cls(x_p)
+        #c_p, f_C_p = self.f_cls(x_p)
 
         y_r, f_D_r = self.f_dis(self.x_r)
         y_f, f_D_f = self.f_dis(x_f)
-        y_p, f_D_p = self.f_dis(x_p)
+        #y_p, f_D_p = self.f_dis(x_p)
 
         L_KL = kl_loss(z_avg, z_log_var)
 
@@ -299,32 +296,35 @@ class CVAEGAN(CondBaseModel):
         cls_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         dis_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
 
-        # Use feature matching (it is usually unstable)
-        L_GD = self.L_GD(f_D_r, f_D_p)
-        L_GC = self.L_GC(f_C_r, f_C_p, self.c_r)
+        L_GD = self.L_GD(f_D_r, f_D_f)
+        L_GC = self.L_GC(f_C_r, f_C_f, self.c_r)
         L_G = self.L_G(self.x_r, x_f, f_D_r, f_D_f, f_C_r, f_C_f)
 
         with tf.name_scope('L_D'):
             L_D = tf.losses.sigmoid_cross_entropy(tf.ones_like(y_r), y_r) + \
-                  tf.losses.sigmoid_cross_entropy(tf.zeros_like(y_f), y_f) + \
-                  tf.losses.sigmoid_cross_entropy(tf.zeros_like(y_p), y_p)
+                  tf.losses.sigmoid_cross_entropy(tf.zeros_like(y_f), y_f)
 
         with tf.name_scope('L_C'):
             L_C = tf.losses.softmax_cross_entropy(self.c_r, c_r_pred)
+
+        with tf.name_scope('L_GT'):
+            L_GT = tf.contrib.losses.metric_learning.triplet_semihard_loss(
+                labels = tf.argmax(self.c_r, axis=1), embeddings = z_avg, margin=0.2)
 
         self.enc_trainer = enc_opt.minimize(L_G + L_KL, var_list=self.f_enc.variables)
         self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
         self.cls_trainer = cls_opt.minimize(L_C, var_list=self.f_cls.variables)
         self.dis_trainer = dis_opt.minimize(L_D, var_list=self.f_dis.variables)
 
-        self.gen_loss = L_G + L_GD + L_GC
+        self.gen_loss = L_G + L_GD + L_GC + L_GT
         self.dis_loss = L_D
 
         # Predictor
-        self.z_test = tf.placeholder(tf.float32, shape=(None, self.z_dims))
+        self.test_input = tf.placeholder(tf.float32, shape=(None,) + self.input_shape)
         self.c_test = tf.placeholder(tf.float32, shape=(None, self.num_attrs))
-
-        self.x_test = self.f_gen(self.z_test, self.c_test)
+        z_test_avg, z_test_log_var = self.f_enc(self.test_input, self.c_test)
+        z_test = sample_normal(z_test_avg, z_test_log_var)
+        self.x_test = self.f_gen(z_test, self.c_test)
         x_tile = self.image_tiling(self.x_test, self.test_size, self.num_attrs)
 
         # Summary
@@ -341,12 +341,10 @@ class CVAEGAN(CondBaseModel):
         tf.summary.scalar('dis_loss', self.dis_loss)
 
         # Accuracy
-        self.gen_acc = 0.5 * binary_accuracy(tf.ones_like(y_f), y_f) + \
-                       0.5 * binary_accuracy(tf.ones_like(y_p), y_p)
+        self.gen_acc = 0.5 * binary_accuracy(tf.ones_like(y_f), y_f)
 
         self.dis_acc = binary_accuracy(tf.ones_like(y_r), y_r) / 3.0 + \
-                       binary_accuracy(tf.zeros_like(y_f), y_f) / 3.0 + \
-                       binary_accuracy(tf.zeros_like(y_p), y_p) / 3.0
+                       binary_accuracy(tf.zeros_like(y_f), y_f) / 3.0
 
         tf.summary.scalar('gen_acc', self.gen_acc)
         tf.summary.scalar('dis_acc', self.dis_acc)

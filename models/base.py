@@ -94,8 +94,8 @@ class BaseModel(metaclass=ABCMeta):
             os.makedirs(log_out_dir)
 
         # Make test data
-        self.make_test_data()
-
+        self.make_test_data(datasets)
+        
         # Start training
         with self.sess.as_default():
             current_epoch = tf.Variable(0, name='current_epoch', dtype=tf.int32)

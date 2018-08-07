@@ -63,7 +63,6 @@ class SVHN(ConditionalDataset):
     def __init__(self):
         super(SVHN, self).__init__()
         self.images, self.attrs = load_data(outfile)
-        self.attr_names = [str(i) for i in range(10)]
     def get_test_data(self):
         return load_data(testfile)
 
