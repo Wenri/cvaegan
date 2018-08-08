@@ -229,7 +229,7 @@ class CVAEGAN(CondBaseModel):
             (self.gen_trainer, self.enc_trainer, self.dis_trainer, self.cls_trainer, self.gen_loss, self.dis_loss, self.gen_acc, self.dis_acc),
             feed_dict={
                 self.x_r: x_r, self.c_r: c_r,
-                self.z_test: self.test_data['z_test'], self.c_test: self.test_data['c_test']
+                self.test_input: self.test_data['test_input'], self.c_test: self.test_data['c_test']
             }
         )
 
@@ -239,7 +239,7 @@ class CVAEGAN(CondBaseModel):
                 self.summary,
                 feed_dict={
                     self.x_r: x_r, self.c_r: c_r,
-                    self.z_test: self.test_data['z_test'], self.c_test: self.test_data['c_test']
+                    self.test_input: self.test_data['test_input'], self.c_test: self.test_data['c_test']
                 }
             )
             self.writer.add_summary(summary, index)
@@ -253,14 +253,15 @@ class CVAEGAN(CondBaseModel):
         z_samples, c_samples = batch
         x_sample = self.sess.run(
             self.x_test,
-            feed_dict={self.z_test: z_samples, self.c_test: c_samples}
+            feed_dict={self.test_input: z_samples, self.c_test: c_samples}
         )
         return x_sample
 
     def make_test_data(self, datasets = None):
         if datasets is not None:
-            self.test_data = datasets.
-        self.test_data = {'z_test': z_t, 'c_test': c_t}
+            imgs_t, c_t = datasets.get_test_data()
+        num_t = self.num_attrs * self.test_size
+        self.test_data = {'test_input': imgs_t[:num_t], 'c_test': c_t[:num_t]}
 
     def build_model(self):
         self.f_enc = Encoder(self.input_shape, self.z_dims, self.num_attrs)
@@ -343,8 +344,8 @@ class CVAEGAN(CondBaseModel):
         # Accuracy
         self.gen_acc = 0.5 * binary_accuracy(tf.ones_like(y_f), y_f)
 
-        self.dis_acc = binary_accuracy(tf.ones_like(y_r), y_r) / 3.0 + \
-                       binary_accuracy(tf.zeros_like(y_f), y_f) / 3.0
+        self.dis_acc = binary_accuracy(tf.ones_like(y_r), y_r) / 2.0 + \
+                       binary_accuracy(tf.zeros_like(y_f), y_f) / 2.0
 
         tf.summary.scalar('gen_acc', self.gen_acc)
         tf.summary.scalar('dis_acc', self.dis_acc)

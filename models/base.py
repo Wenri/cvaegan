@@ -258,9 +258,9 @@ class CondBaseModel(BaseModel):
         assert self.attr_names is not None
 
         try:
-            test_samples = self.test_data['z_test']
+            test_samples = self.test_data['test_input']
         except KeyError as e:
-            print('Key "z_test" must be provided in "make_test_data" method!')
+            print('Key "test_input" must be provided in "make_test_data" method!')
             raise e
 
         try:

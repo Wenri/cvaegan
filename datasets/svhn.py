@@ -40,7 +40,7 @@ def download_svhn():
         sys.stdout.write('\nFinish!\n')
         sys.stdout.flush()
 
-def load_data(datafile = outfile):
+def _load_data(datafile):
     if not os.path.exists(datafile):
         download_svhn()
 
@@ -59,10 +59,12 @@ def load_data(datafile = outfile):
 
     return x_train, y_train
 
-class SVHN(ConditionalDataset):
+class load_data(ConditionalDataset):
     def __init__(self):
-        super(SVHN, self).__init__()
-        self.images, self.attrs = load_data(outfile)
+        super(load_data, self).__init__()
+        self.images, self.attrs = _load_data(outfile)
+        self.attr_names = [str(i) for i in range(10)]
     def get_test_data(self):
-        return load_data(testfile)
+        return _load_data(testfile)  
+
 

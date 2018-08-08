@@ -13,14 +13,6 @@ from models import *
 from datasets import load_data, mnist, svhn
 
 models = {
-    'vae': VAE,
-    'dcgan': DCGAN,
-    'improved': ImprovedGAN,
-    'resnet': ResNetGAN,
-    'began': BEGAN,
-    'wgan': WGAN,
-    'lsgan': LSGAN,
-    'cvae': CVAE,
     'cvaegan': CVAEGAN
 }
 
@@ -51,7 +43,7 @@ def main(_):
     if args.dataset == 'mnist':
         datasets = mnist.load_data()
     elif args.dataset == 'svhn':
-        datasets = svhn.SVHN()
+        datasets = svhn.load_data()
     else:
         datasets = load_data(args.dataset, args.datasize)
 
