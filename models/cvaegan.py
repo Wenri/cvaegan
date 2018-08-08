@@ -6,21 +6,17 @@ from .base import CondBaseModel
 from .utils import *
 
 class Encoder(object):
-    def __init__(self, input_shape, z_dims, num_attrs):
+    def __init__(self, input_shape, z_dims):
         self.variables = None
         self.reuse = False
         self.input_shape = input_shape
         self.z_dims = z_dims
-        self.num_attrs = num_attrs
         self.name = 'encoder'
 
-    def __call__(self, inputs, attrs, training=True):
+    def __call__(self, inputs, training=True):
         with tf.variable_scope(self.name, reuse=self.reuse):
             with tf.variable_scope('conv1'):
-                a = tf.reshape(attrs, [-1, 1, 1, self.num_attrs])
-                a = tf.tile(a, [1, self.input_shape[0], self.input_shape[1], 1])
-                x = tf.concat([inputs, a], axis=-1)
-                x = tf.layers.conv2d(x, 64, (5, 5), (2, 2), 'same')
+                x = tf.layers.conv2d(inputs, 64, (5, 5), (2, 2), 'same')
                 x = tf.layers.batch_normalization(x, training=training)
                 x = tf.nn.relu(x)
 
@@ -58,12 +54,11 @@ class Decoder(object):
         self.input_shape = input_shape
         self.name = 'decoder'
 
-    def __call__(self, inputs, attrs, training=True):
+    def __call__(self, inputs, training=True):
         with tf.variable_scope(self.name, reuse=self.reuse):
             with tf.variable_scope('fc1'):
                 w = self.input_shape[0] // (2 ** 3)
-                x = tf.concat([inputs, attrs], axis=-1)
-                x = tf.layers.dense(x, w * w * 256)
+                x = tf.layers.dense(inputs, w * w * 256)
                 x = tf.layers.batch_normalization(x, training=training)
                 x = tf.nn.relu(x)
                 x = tf.reshape(x, [-1, w, w, 256])
@@ -264,7 +259,7 @@ class CVAEGAN(CondBaseModel):
         self.test_data = {'test_input': imgs_t[:num_t], 'c_test': c_t[:num_t]}
 
     def build_model(self):
-        self.f_enc = Encoder(self.input_shape, self.z_dims, self.num_attrs)
+        self.f_enc = Encoder(self.input_shape, self.z_dims)
         self.f_gen = Decoder(self.input_shape)
 
         self.f_cls = Classifier(self.input_shape, self.num_attrs)
@@ -274,10 +269,10 @@ class CVAEGAN(CondBaseModel):
         self.x_r = tf.placeholder(tf.float32, shape=(None,) + self.input_shape)
         self.c_r = tf.placeholder(tf.float32, shape=(None, self.num_attrs))
 
-        z_avg, z_log_var = self.f_enc(self.x_r, self.c_r)
+        z_avg, z_log_var = self.f_enc(self.x_r)
 
         z_f = sample_normal(z_avg, z_log_var)
-        x_f = self.f_gen(z_f, self.c_r)
+        x_f = self.f_gen(z_f)
 
         #self.z_p = tf.placeholder(tf.float32, shape=(None, self.z_dims))
         #x_p = self.f_gen(self.z_p, self.c_r)
@@ -323,9 +318,9 @@ class CVAEGAN(CondBaseModel):
         # Predictor
         self.test_input = tf.placeholder(tf.float32, shape=(None,) + self.input_shape)
         self.c_test = tf.placeholder(tf.float32, shape=(None, self.num_attrs))
-        z_test_avg, z_test_log_var = self.f_enc(self.test_input, self.c_test)
+        z_test_avg, z_test_log_var = self.f_enc(self.test_input)
         z_test = sample_normal(z_test_avg, z_test_log_var)
-        self.x_test = self.f_gen(z_test, self.c_test)
+        self.x_test = self.f_gen(z_test)
         x_tile = self.image_tiling(self.x_test, self.test_size, self.num_attrs)
 
         # Summary
