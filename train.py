@@ -13,7 +13,8 @@ from models import *
 from datasets import load_data, mnist, svhn
 
 models = {
-    'cvaegan': CVAEGAN
+    'cvaegan': CVAEGAN,
+    'trivaegan': TriVAEGAN
 }
 
 def main(_):

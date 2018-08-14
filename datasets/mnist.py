@@ -44,7 +44,7 @@ def download_mnist():
             sys.stdout.write('\nFinish!\n')
             sys.stdout.flush()
 
-def load_images(filename):
+def _load_images(filename):
     with gzip.GzipFile(filename, 'rb') as fp:
         # Magic number
         magic = struct.unpack('>I', fp.read(4))[0]
@@ -60,7 +60,7 @@ def load_images(filename):
 
         return data
 
-def load_labels(filename):
+def _load_labels(filename):
     with gzip.GzipFile(filename, 'rb') as fp:
         # Magic number
         magic = struct.unpack('>I', fp.read(4))
@@ -76,20 +76,26 @@ def load_labels(filename):
 
         return data
 
-def load_data():
+def _load_data(x_file, y_file):
     if not os.path.exists(outdir):
         download_mnist()
 
-    x_train = load_images(os.path.join(outdir, x_train_file))
-    y_train = load_labels(os.path.join(outdir, y_train_file))
+    x_train = _load_images(os.path.join(outdir, x_file))
+    y_train = _load_labels(os.path.join(outdir, y_file))
 
     x_train = np.pad(x_train, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0)
     x_train = (x_train[:, :, :, np.newaxis] / 255.0).astype('float32')
     y_train = y_train.astype('float32')
 
-    datasets = ConditionalDataset()
-    datasets.images = x_train
-    datasets.attrs = y_train
-    datasets.attr_names = [str(i) for i in range(10)]
+    return x_train, y_train
 
-    return datasets
+class load_data(ConditionalDataset):
+    def __init__(self):
+        super(load_data, self).__init__()
+        self.images, self.attrs = _load_data(x_train_file, y_train_file)
+        self.attr_names = [str(i) for i in range(10)]
+#        self.semi_mask = (np.random.rand(len(self.attrs)) > 0.8)
+#        self.attrs = (self.attrs.T * self.semi_mask).T
+
+    def get_test_data(self):
+        return _load_data(x_test_file, y_test_file)

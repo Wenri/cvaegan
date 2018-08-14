@@ -269,8 +269,8 @@ class CondBaseModel(BaseModel):
             print('Key "c_test" must be provided in "make_test_data" method!')
             raise e
 
-        imgs = self.predict([test_samples, test_attrs]) * 0.5 + 0.5
-        imgs = np.clip(imgs, 0.0, 1.0)
+        imgs, y_pred = self.predict([test_samples, test_attrs])
+        imgs = np.clip(imgs * 0.5 + 0.5, 0.0, 1.0)
 
         _, height, width, dims = imgs.shape
 
@@ -287,3 +287,10 @@ class CondBaseModel(BaseModel):
 
         figure = Image.fromarray((np.squeeze(figure) * 255.0).astype(np.uint8))
         figure.save(filename)
+
+        label_real = np.argmax(test_attrs, axis=1)
+        label_pred = np.argmax(y_pred, axis=1)
+        acc = np.mean(label_real == label_pred)
+        print(label_real)
+        print(label_pred)
+        print(acc)
