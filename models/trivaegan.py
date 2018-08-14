@@ -293,7 +293,8 @@ class TriVAEGAN(CondBaseModel):
 
         c_r_predone = tf.one_hot(tf.argmax(c_r_pred, axis=1), self.num_attrs)
         c_weights = tf.reduce_max(self.c_r, axis=1)
-        c_semi = tf.where(c_weights > 0, self.c_r, c_r_predone)
+        bool_mask = c_weights > 0.1
+        c_semi = tf.where(bool_mask, self.c_r, c_r_predone)
 
         enc_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         gen_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
@@ -303,20 +304,17 @@ class TriVAEGAN(CondBaseModel):
         L_GD = self.L_GD(f_D_r, f_D_f)
         L_GC = self.L_GC(f_C_r, f_C_f, self.c_r)
         L_G = self.L_G(self.x_r, x_f, f_D_r, f_D_f, f_C_r, f_C_f)
+        L_GT = self.L_metric(z_measure, c_semi, bool_mask)
 
         with tf.name_scope('L_D'):
             L_D = tf.losses.sigmoid_cross_entropy(tf.ones_like(y_r), y_r) + \
                   tf.losses.sigmoid_cross_entropy(tf.zeros_like(y_f), y_f)
 
         with tf.name_scope('L_C'):
-            L_C = tf.losses.softmax_cross_entropy(self.c_r, c_r_pred, weights=c_weights)
-
-        with tf.name_scope('L_GT'):
-            L_GT = tf.contrib.losses.metric_learning.triplet_semihard_loss(
-                labels = tf.argmax(self.c_r, axis=1), embeddings = z_measure, margin=0.2)
+            L_C = tf.losses.softmax_cross_entropy(c_semi, c_r_pred, weights=c_weights)
 
         with tf.name_scope('L_GPC'):
-            L_CPC = tf.losses.softmax_cross_entropy(self.c_r, y_pred)
+            L_CPC = tf.losses.softmax_cross_entropy(c_semi, y_pred, weights=c_weights)
 
         self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
         self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
@@ -431,3 +429,15 @@ class TriVAEGAN(CondBaseModel):
 
             # return 0.5 * tf.losses.mean_squared_error(self.E_f_C_r, self.E_f_C_p)
             return 0.5 * tf.reduce_sum(tf.squared_difference(self.E_f_C_r, self.E_f_C_p))
+
+    def L_metric(self, z_measure, c, mask):
+        with tf.name_scope('L_GT'):
+            c_m = tf.boolean_mask(c, mask)
+            z_m = tf.boolean_mask(z_measure, mask)
+            n_labels = tf.count_nonzero(tf.reduce_sum(c_m, axis=0) > 0.1)
+            two_labels = tf.count_nonzero(tf.reduce_sum(c_m, axis=0) > 1.1)
+            cond = tf.logical_and(two_labels>0, n_labels>1)
+            return tf.cond(tf.Print(cond, [n_labels, two_labels, cond], 'Labels: '),
+                lambda: tf.contrib.losses.metric_learning.triplet_semihard_loss(
+                labels = tf.argmax(c_m, axis=1), embeddings = z_m, margin=0.2), 
+                lambda: tf.constant(0, dtype=tf.float32))
