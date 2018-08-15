@@ -64,6 +64,9 @@ class load_data(ConditionalDataset):
         super(load_data, self).__init__()
         self.images, self.attrs = _load_data(outfile)
         self.attr_names = [str(i) for i in range(10)]
+        self.semi_mask = (np.random.rand(len(self.attrs)) < 0.9)
+        self.attrs[self.semi_mask, :] = 0
+
     def get_test_data(self):
         return _load_data(testfile)  
 

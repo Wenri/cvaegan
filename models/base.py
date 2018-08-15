@@ -157,6 +157,7 @@ class BaseModel(metaclass=ABCMeta):
                     if b != 0 and ((b // save_period != (b + bsize) // save_period) or ((b + bsize) == num_data)):
                         outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
                         self.save_images(outfile)
+                        self.test_accruacy()
                         outfile = os.path.join(chk_out_dir, 'epoch_%04d' % (e + 1))
                         self.save_model(outfile)
 
@@ -269,7 +270,8 @@ class CondBaseModel(BaseModel):
             print('Key "c_test" must be provided in "make_test_data" method!')
             raise e
 
-        imgs, y_pred = self.predict([test_samples, test_attrs])
+        num_test = self.test_size * self.num_attrs
+        imgs, _ = self.predict([test_samples[:num_test], test_attrs[:num_test]])
         imgs = np.clip(imgs * 0.5 + 0.5, 0.0, 1.0)
 
         _, height, width, dims = imgs.shape
@@ -287,10 +289,32 @@ class CondBaseModel(BaseModel):
 
         figure = Image.fromarray((np.squeeze(figure) * 255.0).astype(np.uint8))
         figure.save(filename)
+        print('Test Image saved to ' + filename)
 
-        label_real = np.argmax(test_attrs, axis=1)
-        label_pred = np.argmax(y_pred, axis=1)
-        acc = np.mean(label_real == label_pred)
-        print(label_real)
-        print(label_pred)
-        print(acc)
+    def test_accruacy(self):
+        assert self.attr_names is not None
+
+        try:
+            test_samples = self.test_data['test_input']
+        except KeyError as e:
+            print('Key "test_input" must be provided in "make_test_data" method!')
+            raise e
+
+        try:
+            test_attrs = self.test_data['c_test']
+        except KeyError as e:
+            print('Key "c_test" must be provided in "make_test_data" method!')
+            raise e
+
+        num_test = self.test_size * self.num_attrs
+        acc = 0
+
+        for b in range(0, len(test_samples), num_test):
+            _, y = self.predict([test_samples[b:b+num_test], test_attrs[b:b+num_test]])
+            label_real = np.argmax(test_attrs[b:b+num_test], axis=1)
+            label_pred = np.argmax(y, axis=1)
+            acc += np.count_nonzero(label_real == label_pred)
+            print(label_real)
+            print(label_pred)
+        
+        print("Test accuracy is %d/%d = %.3f" % (acc, len(test_samples), acc/len(test_samples)))

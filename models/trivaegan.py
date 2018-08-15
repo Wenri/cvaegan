@@ -227,18 +227,20 @@ class TriVAEGAN(CondBaseModel):
         _, _, _, _, gen_loss, dis_loss, gen_acc, dis_acc = self.sess.run(
             (self.gen_trainer, self.enc_trainer, self.dis_trainer, self.cls_trainer, self.gen_loss, self.dis_loss, self.gen_acc, self.dis_acc),
             feed_dict={
-                self.x_r: x_r, self.c_r: c_r,
-                self.test_input: self.test_data['test_input'], self.c_test: self.test_data['c_test']
+                self.x_r: x_r, self.c_r: c_r
             }
         )
 
         summary_priod = 1000
         if index // summary_priod != (index + batchsize) // summary_priod:
+            test_samples = self.test_data['test_input']
+            test_attrs = self.test_data['c_test']
+            num_test = self.test_size * self.num_attrs
             summary = self.sess.run(
                 self.summary,
                 feed_dict={
                     self.x_r: x_r, self.c_r: c_r,
-                    self.test_input: self.test_data['test_input'], self.c_test: self.test_data['c_test']
+                    self.test_input: test_samples[:num_test], self.c_test: test_attrs[:num_test]
                 }
             )
             self.writer.add_summary(summary, index)
@@ -259,8 +261,7 @@ class TriVAEGAN(CondBaseModel):
     def make_test_data(self, datasets = None):
         if datasets is not None:
             imgs_t, c_t = datasets.get_test_data()
-        num_t = self.num_attrs * self.test_size
-        self.test_data = {'test_input': imgs_t[:num_t], 'c_test': c_t[:num_t]}
+        self.test_data = {'test_input': imgs_t, 'c_test': c_t}
 
     def build_model(self):
         self.f_enc = Encoder(self.input_shape, self.z_dims, self.num_attrs)
