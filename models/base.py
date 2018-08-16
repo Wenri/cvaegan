@@ -46,6 +46,10 @@ class BaseModel(metaclass=ABCMeta):
         self.resume = kwargs['resume']
 
         self.sess = tf.Session()
+
+        self.current_epoch = tf.Variable(0, name='current_epoch', dtype=tf.int32)
+        self.current_batch = tf.Variable(0, name='current_batch', dtype=tf.int32)
+
         self.writer = None
         self.saver = None
         self.summary = None
@@ -98,8 +102,6 @@ class BaseModel(metaclass=ABCMeta):
         
         # Start training
         with self.sess.as_default():
-            current_epoch = tf.Variable(0, name='current_epoch', dtype=tf.int32)
-            current_batch = tf.Variable(0, name='current_batch', dtype=tf.int32)
 
             # Initialize global variables
             self.saver = tf.train.Saver()
@@ -112,17 +114,24 @@ class BaseModel(metaclass=ABCMeta):
 
             # Update rule
             num_data = len(datasets)
-            update_epoch = current_epoch.assign(current_epoch + 1)
-            update_batch = current_batch.assign(tf.mod(tf.minimum(current_batch + self.batchsize, num_data), num_data))
+            update_epoch = self.current_epoch.assign(self.current_epoch + 1)
+            update_batch = self.current_batch.assign(tf.mod(tf.minimum(self.current_batch + self.batchsize, num_data), num_data))
 
             self.writer = tf.summary.FileWriter(log_out_dir, self.sess.graph)
             self.sess.graph.finalize()
 
             print('\n\n--- START TRAINING ---\n')
-            for e in range(current_epoch.eval(), epochs):
-                perm = np.random.permutation(num_data)
+            for e in range(self.current_epoch.eval(), epochs):
+                perm_semi = np.flatnonzero(datasets.semi_mask)
+                perm = np.flatnonzero(datasets.semi_mask == 0)
+                np.random.shuffle(perm_semi)
+                np.random.shuffle(perm)
+                print(perm.shape)
+                print(perm_semi.shape)
+                perm = np.concatenate((perm, perm_semi))
+
                 start_time = time.time()
-                for b in range(current_batch.eval(), num_data, self.batchsize):
+                for b in range(self.current_batch.eval(), num_data, self.batchsize):
                     # Update batch index
                     self.sess.run(update_batch)
 

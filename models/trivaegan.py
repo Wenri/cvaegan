@@ -224,8 +224,15 @@ class TriVAEGAN(CondBaseModel):
         batchsize = len(x_r)
         # z_p = np.random.uniform(-1, 1, size=(len(x_r), self.z_dims))
 
-        _, _, _, _, gen_loss, dis_loss, gen_acc, dis_acc = self.sess.run(
-            (self.gen_trainer, self.enc_trainer, self.dis_trainer, self.cls_trainer, self.gen_loss, self.dis_loss, self.gen_acc, self.dis_acc),
+        _, _, dis_loss, dis_acc = self.sess.run(
+            (self.dis_trainer, self.cls_trainer, self.dis_loss, self.dis_acc),
+            feed_dict={
+                self.x_r: x_r, self.c_r: c_r
+            }
+        )
+
+        _, _, gen_loss, gen_acc = self.sess.run(
+            (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc),
             feed_dict={
                 self.x_r: x_r, self.c_r: c_r
             }
@@ -293,9 +300,8 @@ class TriVAEGAN(CondBaseModel):
         L_KL = kl_loss(z_avg, z_log_var)
 
         c_r_predone = tf.one_hot(tf.argmax(c_r_pred, axis=1), self.num_attrs)
-        c_weights = tf.reduce_max(self.c_r, axis=1)
-        bool_mask = c_weights > 0.1
-        c_semi = tf.where(bool_mask, self.c_r, c_r_predone)
+        c_weights = tf.maximum(tf.reduce_max(self.c_r, axis=1), tf.minimum(tf.cast(self.current_epoch, tf.float32) / 100, 1))
+        c_semi = tf.where(c_weights > 0.1, self.c_r, c_r_predone)
 
         enc_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         gen_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
@@ -305,7 +311,7 @@ class TriVAEGAN(CondBaseModel):
         L_GD = self.L_GD(f_D_r, f_D_f)
         L_GC = self.L_GC(f_C_r, f_C_f, self.c_r)
         L_G = self.L_G(self.x_r, x_f, f_D_r, f_D_f, f_C_r, f_C_f)
-        L_GT = self.L_metric(z_measure, c_semi, bool_mask)
+        L_GT = self.L_metric(z_measure, c_semi, c_weights > 0.2)
 
         with tf.name_scope('L_D'):
             L_D = tf.losses.sigmoid_cross_entropy(tf.ones_like(y_r), y_r) + \
