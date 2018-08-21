@@ -1,7 +1,3 @@
-import os
-import sys
-import time
-import math
 import numpy as np
 from PIL import Image
 
@@ -28,10 +24,6 @@ class BaseModel(metaclass=ABCMeta):
             raise Exception('Please specify model name!')
         self.name = kwargs['name']
 
-        if 'batchsize' not in kwargs:
-            raise Exception('Please specify batchsize!')
-        self.batchsize = kwargs['batchsize']
-
         if 'input_shape' not in kwargs:
             raise Exception('Please specify input shape!')
 
@@ -46,18 +38,12 @@ class BaseModel(metaclass=ABCMeta):
         self.resume = kwargs['resume']
 
         self.sess = tf.Session()
-
-        self.current_epoch = tf.Variable(0, name='current_epoch', dtype=tf.int32)
-        self.current_batch = tf.Variable(0, name='current_batch', dtype=tf.int32)
-
         self.writer = None
-        self.saver = None
+        self.saver = tf.train.Saver()
         self.summary = None
 
         self.test_size = 10
         self.test_data = None
-
-        self.test_mode = False
 
     def check_input_shape(self, input_shape):
         # Check for CelebA
@@ -74,108 +60,6 @@ class BaseModel(metaclass=ABCMeta):
 
         errmsg = 'Input size should be 32 x 32 or 64 x 64!'
         raise Exception(errmsg)
-
-    def main_loop(self, datasets, epochs=100):
-        """
-        Main learning loop
-        """
-        # Create output directories if not exist
-        out_dir = os.path.join(self.output, self.name)
-        if not os.path.isdir(out_dir):
-            os.makedirs(out_dir)
-
-        res_out_dir = os.path.join(out_dir, 'results')
-        if not os.path.isdir(res_out_dir):
-            os.makedirs(res_out_dir)
-
-        chk_out_dir = os.path.join(out_dir, 'checkpoints')
-        if not os.path.isdir(chk_out_dir):
-            os.makedirs(chk_out_dir)
-
-        time_str = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-        log_out_dir = os.path.join(out_dir, 'log', time_str)
-        if not os.path.isdir(log_out_dir):
-            os.makedirs(log_out_dir)
-
-        # Make test data
-        self.make_test_data(datasets)
-        
-        # Start training
-        with self.sess.as_default():
-
-            # Initialize global variables
-            self.saver = tf.train.Saver()
-            if self.resume is not None:
-                print('Resume training: %s' % self.resume)
-                self.load_model(self.resume)
-            else:
-                self.sess.run(tf.global_variables_initializer())
-                self.sess.run(tf.local_variables_initializer())
-
-            # Update rule
-            num_data = len(datasets)
-            update_epoch = self.current_epoch.assign(self.current_epoch + 1)
-            update_batch = self.current_batch.assign(tf.mod(tf.minimum(self.current_batch + self.batchsize, num_data), num_data))
-
-            self.writer = tf.summary.FileWriter(log_out_dir, self.sess.graph)
-            self.sess.graph.finalize()
-
-            print('\n\n--- START TRAINING ---\n')
-            for e in range(self.current_epoch.eval(), epochs):
-                perm_semi = np.flatnonzero(datasets.semi_mask)
-                perm = np.flatnonzero(datasets.semi_mask == 0)
-                np.random.shuffle(perm_semi)
-                np.random.shuffle(perm)
-                print(perm.shape)
-                print(perm_semi.shape)
-                perm = np.concatenate((perm, perm_semi))
-
-                start_time = time.time()
-                for b in range(self.current_batch.eval(), num_data, self.batchsize):
-                    # Update batch index
-                    self.sess.run(update_batch)
-
-                    # Check batch size
-                    bsize = min(self.batchsize, num_data - b)
-                    indx = perm[b:b+bsize]
-                    if bsize < self.batchsize:
-                        break
-
-                    # Get batch and train on it
-                    x_batch = self.make_batch(datasets, indx)
-                    losses = self.train_on_batch(x_batch, e * num_data + (b + bsize))
-
-                    # Print current status
-                    elapsed_time = time.time() - start_time
-                    eta = elapsed_time / (b + bsize) * (num_data - (b + bsize))
-                    ratio = 100.0 * (b + bsize) / num_data
-                    print('Epoch #%d,  Batch: %d / %d (%6.2f %%)  ETA: %s' % \
-                          (e + 1, b + bsize, num_data, ratio, time_format(eta)))
-
-                    for i, (k, v) in enumerate(losses):
-                        text = '%s = %8.6f' % (k, v)
-                        print('  %25s' % (text), end='')
-                        if (i + 1) % 3 == 0:
-                            print('')
-
-                    print('\n')
-                    sys.stdout.flush()
-
-                    # Save generated images
-                    save_period = 10000
-                    if b != 0 and ((b // save_period != (b + bsize) // save_period) or ((b + bsize) == num_data)):
-                        outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
-                        self.save_images(outfile)
-                        self.test_accruacy()
-                        outfile = os.path.join(chk_out_dir, 'epoch_%04d' % (e + 1))
-                        self.save_model(outfile)
-
-                    if self.test_mode:
-                        print('\nFinish testing: %s' % self.name)
-                        return
-
-                print('')
-                self.sess.run(update_epoch)
 
     def make_batch(self, datasets, indx):
         """

@@ -52,11 +52,15 @@ def main(_):
     if args.model not in models:
         raise Exception('Unknown model:', args.model)
 
+    datasets.images = datasets.images.astype('float32') * 2.0 - 1.0
+    trainer = SemiTrainer(datasets,
+        batchsize=args.batchsize
+    )
     model = models[args.model](
-        batchsize=args.batchsize,
         input_shape=datasets.shape[1:],
         attr_names=None or datasets.attr_names,
         z_dims=args.zdims,
+        trainer=trainer,
         output=args.output,
         resume=args.resume
     )
@@ -67,9 +71,9 @@ def main(_):
     tf.set_random_seed(12345)
 
     # Training loop
-    datasets.images = datasets.images.astype('float32') * 2.0 - 1.0
-    model.main_loop(datasets,
-                    epochs=args.epoch)
+    trainer.main_loop(model,
+        epochs=args.epoch
+    )
 
 if __name__ == '__main__':
     tf.app.run(main)
