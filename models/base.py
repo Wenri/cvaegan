@@ -98,6 +98,17 @@ class BaseModel(metaclass=ABCMeta):
     def load_model(self, model_file):
         self.saver.restore(self.sess, model_file)
 
+    def resume_model(self, init_as_failback = True):
+        # Initialize global variables
+        if self.resume is not None:
+            print('Resume training: %s' % self.resume)
+            self.load_model(self.resume)
+        elif init_as_failback:
+            self.sess.run(tf.global_variables_initializer())
+            self.sess.run(tf.local_variables_initializer())
+        else:
+            raise Exception('resume failed')
+
     @abstractmethod
     def make_test_data(self):
         """
@@ -164,8 +175,8 @@ class CondBaseModel(BaseModel):
             raise e
 
         num_test = self.test_size * self.num_attrs
-        imgs, _ = self.predict([test_samples[:num_test], test_attrs[:num_test]])
-        imgs = np.clip(imgs * 0.5 + 0.5, 0.0, 1.0)
+        results = self.predict([test_samples[:num_test], test_attrs[:num_test]])
+        imgs = np.clip(results['x_test'] * 0.5 + 0.5, 0.0, 1.0)
 
         _, height, width, dims = imgs.shape
 
@@ -203,9 +214,9 @@ class CondBaseModel(BaseModel):
         acc = 0
 
         for b in range(0, len(test_samples), num_test):
-            _, y = self.predict([test_samples[b:b+num_test], test_attrs[b:b+num_test]])
+            results = self.predict([test_samples[b:b+num_test], test_attrs[b:b+num_test]])
             label_real = np.argmax(test_attrs[b:b+num_test], axis=1)
-            label_pred = np.argmax(y, axis=1)
+            label_pred = np.argmax(results['y_predict'], axis=1)
             acc += np.count_nonzero(label_real == label_pred)
             print(label_real)
             print(label_pred)

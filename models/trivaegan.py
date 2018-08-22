@@ -262,11 +262,17 @@ class TriVAEGAN(CondBaseModel):
 
     def predict(self, batch):
         z_samples, c_samples = batch
-        x_sample, y = self.sess.run(
-            [self.x_test, self.c_test_pred],
-            feed_dict={self.test_input: z_samples, self.c_test: c_samples}
+        fetches = {
+            'x_test': self.x_test,
+            'y_predict': self.c_test_pred,
+            'z_measure': self.z_test_measure
+        }
+        return self.sess.run(
+            fetches, feed_dict={
+                self.test_input: z_samples, 
+                self.c_test: c_samples
+            }
         )
-        return x_sample, y
 
     def make_test_data(self):
         c_t = np.identity(self.num_attrs)
@@ -287,7 +293,7 @@ class TriVAEGAN(CondBaseModel):
         self.x_r = tf.placeholder(tf.float32, shape=(None,) + self.input_shape)
         self.c_r = tf.placeholder(tf.float32, shape=(None, self.num_attrs))
 
-        z_avg, z_log_var, y_pred, z_measure = self.f_enc(self.x_r)
+        z_avg, z_log_var, self.y_pred, self.z_measure = self.f_enc(self.x_r)
 
         z_f = sample_normal(z_avg, z_log_var)
         x_f = self.f_gen(z_f)
@@ -305,7 +311,7 @@ class TriVAEGAN(CondBaseModel):
 
         L_KL = kl_loss(z_avg, z_log_var)
 
-        y_predone = tf.one_hot(tf.argmax(y_pred, axis=1), self.num_attrs)
+        y_predone = tf.one_hot(tf.argmax(self.y_pred, axis=1), self.num_attrs)
         c_weights = tf.reduce_max(self.c_r, axis=1)
         c_semi = tf.where(c_weights > 0.01, self.c_r, y_predone)
 
@@ -320,7 +326,7 @@ class TriVAEGAN(CondBaseModel):
         L_GD = self.L_GD(f_D_r, f_D_f)
         L_GC = self.L_GC(f_C_r, f_C_f, self.c_r)
         L_G = self.L_G(self.x_r, x_f, f_D_r, f_D_f, f_C_r, f_C_f)
-        L_GT = self.L_Metric(z_measure, c_semi, c_weights > 0.1)
+        L_GT = self.L_Metric(self.z_measure, c_semi, c_weights > 0.1)
 
         with tf.name_scope('L_D'):
             L_D = tf.losses.sigmoid_cross_entropy(tf.ones_like(y_r), y_r) + \
@@ -330,7 +336,7 @@ class TriVAEGAN(CondBaseModel):
             L_C = tf.losses.softmax_cross_entropy(c_semi, c_r_pred, weights=c_weights)
 
         with tf.name_scope('L_CPC'):
-            L_CPC = tf.losses.softmax_cross_entropy(c_semi, y_pred, weights=c_weights)
+            L_CPC = tf.losses.softmax_cross_entropy(c_semi, self.y_pred, weights=c_weights)
 
         self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
         self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
@@ -343,7 +349,7 @@ class TriVAEGAN(CondBaseModel):
         # Predictor
         self.test_input = tf.placeholder(tf.float32, shape=(None,) + self.input_shape)
         self.c_test = tf.placeholder(tf.float32, shape=(None, self.num_attrs))
-        z_test_avg, z_test_log_var, self.c_test_pred, _ = self.f_enc(self.test_input)
+        z_test_avg, z_test_log_var, self.c_test_pred, self.z_test_measure = self.f_enc(self.test_input)
         z_test = sample_normal(z_test_avg, z_test_log_var)
         self.x_test = self.f_gen(z_test)
         x_tile = self.image_tiling(self.x_test, self.test_size, self.num_attrs)
@@ -449,7 +455,7 @@ class TriVAEGAN(CondBaseModel):
     def L_Metric(self, z_measure, c, mask):
         with tf.name_scope('L_GT'):
             c_m = tf.boolean_mask(tf.Print(c, [tf.argmax(c, axis=1), mask], "SemiLabel"), mask)
-            z_m = tf.boolean_mask(z_measure, mask)
+            z_m = tf.boolean_mask(self.z_measure, mask)
             n_labels = tf.count_nonzero(tf.reduce_sum(c_m, axis=0) > 0.1)
             two_labels = tf.count_nonzero(tf.reduce_sum(c_m, axis=0) > 1.1)
             cond = tf.logical_and(two_labels>0, n_labels>1)
