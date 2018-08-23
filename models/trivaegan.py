@@ -2,15 +2,17 @@ import math
 import numpy as np
 import tensorflow as tf
 
+from types import SimpleNamespace
 from .base import CondBaseModel
 from .utils import *
 
 class Encoder(object):
-    def __init__(self, input_shape, z_dims, num_attrs):
+    def __init__(self, input_shape, z_dims, metric_dims, num_attrs):
         self.variables = None
         self.reuse = False
         self.input_shape = input_shape
         self.z_dims = z_dims
+        self.metric_dims = metric_dims
         self.num_attrs = num_attrs
         self.name = 'encoder'
 
@@ -38,7 +40,7 @@ class Encoder(object):
 
             with tf.variable_scope('global_avg'):
                 x = tf.contrib.layers.flatten(x)
-                x = tf.layers.dense(x, 1024)
+                x = tf.layers.dense(x, self.metric_dims)
                 x = lrelu(x)
 
             with tf.variable_scope('fc1'):
@@ -189,6 +191,7 @@ class TriVAEGAN(CondBaseModel):
         self.trainer = trainer
 
         self.z_dims = z_dims
+        self.metric_dims = 2*z_dims
 
         self.alpha = 0.7
 
@@ -227,8 +230,8 @@ class TriVAEGAN(CondBaseModel):
         batchsize = len(x_r)
         # z_p = np.random.uniform(-1, 1, size=(len(x_r), self.z_dims))
 
-        _, _, dis_loss, dis_acc = self.sess.run(
-            (self.dis_trainer, self.cls_trainer, self.dis_loss, self.dis_acc),
+        _, _, dis_loss, dis_acc, z_measure = self.sess.run(
+            (self.dis_trainer, self.cls_trainer, self.dis_loss, self.dis_acc, self.z_measure),
             feed_dict={
                 self.x_r: x_r, self.c_r: c_r
             }
@@ -255,10 +258,15 @@ class TriVAEGAN(CondBaseModel):
             )
             self.writer.add_summary(summary, index)
 
-        return [
-            ('gen_loss', gen_loss), ('dis_loss', dis_loss),
-            ('gen_acc', gen_acc), ('dis_acc', dis_acc)
-        ]
+        return SimpleNamespace(
+            losses = [
+                ('gen_loss', gen_loss), ('dis_loss', dis_loss),
+                ('gen_acc', gen_acc), ('dis_acc', dis_acc)
+            ],
+            results = {
+                'z_measure': z_measure
+            }
+        )
 
     def predict(self, batch):
         z_samples, c_samples = batch
@@ -283,7 +291,7 @@ class TriVAEGAN(CondBaseModel):
         self.test_data = {'z_test': z_t, 'c_test': c_t}
 
     def build_model(self):
-        self.f_enc = Encoder(self.input_shape, self.z_dims, self.num_attrs)
+        self.f_enc = Encoder(self.input_shape, self.z_dims, self.metric_dims, self.num_attrs)
         self.f_gen = Decoder(self.input_shape)
 
         self.f_cls = Classifier(self.input_shape, self.num_attrs)

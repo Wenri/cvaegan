@@ -5,6 +5,7 @@ import math
 import numpy as np
 import tensorflow as tf
 
+from sklearn.neighbors import RadiusNeighborsClassifier
 from .utils import *
 
 class SemiTrainer(object):
@@ -21,7 +22,7 @@ class SemiTrainer(object):
         self.perm = np.random.permutation(len(self.datasets))
         self.perm_semi = self.perm[:self.num_semi]
         self.perm_full = self.perm[self.num_semi:]
-        self.semi_mask = np.zeros(len(self.datasets))
+        self.semi_mask = np.zeros(len(self.datasets), dtype=np.float32)
         self.semi_mask[self.perm_semi] = 1
         self.datasets.attrs[self.perm_semi, :] = 0
         return self.perm
@@ -37,6 +38,7 @@ class SemiTrainer(object):
         imgs_t, c_t = self.datasets.get_test_data()
         self.test_data = {'test_input': imgs_t, 'c_test': c_t}
         model.test_data = self.test_data
+        self.data_metric = np.zeros((len(self.datasets), model.metric_dims), dtype=np.float32)
 
     def create_directory(self, model):
         # Create output directories if not exist
@@ -74,6 +76,15 @@ class SemiTrainer(object):
             if (i + 1) % 3 == 0:
                 print('')
 
+    def update_weights(self, indx, results):
+        self.data_metric[indx, :] = results['z_measure']
+
+    def label_propagation(self, model):
+        radnn = RadiusNeighborsClassifier(radius=0.1, outlier_label=np.zeros(model.num_attrs))
+        radnn.fit(self.data_metric[self.perm_full], self.datasets.attrs[self.perm_full])
+        lbls = radnn.predict(self.data_metric[self.perm_semi])
+        self.datasets.attrs[self.perm_semi, :] = lbls
+
     def do_batch(self, model, e, b):
         num_data = len(self.datasets)
         # Check batch size
@@ -84,10 +95,11 @@ class SemiTrainer(object):
 
         # Get batch and train on it
         x_batch = model.make_batch(self.datasets, indx)
-        losses = model.train_on_batch(x_batch, e * num_data + (b + bsize))
+        ret_batch = model.train_on_batch(x_batch, e * num_data + (b + bsize))
         
         self.print_eta(e, b, bsize)
-        self.print_losses(losses)
+        self.print_losses(ret_batch.losses)
+        self.update_weights(indx, ret_batch.results)
 
         print('\n')
         sys.stdout.flush()
@@ -99,7 +111,7 @@ class SemiTrainer(object):
             model.save_images(outfile)
             model.test_accruacy()
             outfile = os.path.join(self.chk_out_dir, 'epoch_%04d' % (e + 1))
-            model.save_model(outfile)  
+            model.save_model(outfile)
 
     def main_loop(self, model, epochs=100):
         """
@@ -134,6 +146,7 @@ class SemiTrainer(object):
                         print('\nFinish testing: %s' % self.name)
                         return      
                 print('')
+                self.label_propagation(model)
                 model.sess.run(update_epoch)
 
         print('Finished training')
