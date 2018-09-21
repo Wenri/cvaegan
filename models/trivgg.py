@@ -5,6 +5,7 @@ import tensorflow as tf
 from types import SimpleNamespace
 from .base import CondBaseModel
 from .utils import *
+#from ..appprop import appProp
 
 class Encoder(object):
     def __init__(self, input_shape, z_dims, metric_dims, num_attrs):
@@ -16,37 +17,46 @@ class Encoder(object):
         self.num_attrs = num_attrs
         self.name = 'encoder'
 
+    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True):
+        with tf.variable_scope(name):
+            x = tf.layers.conv2d(inputs, filter, (w, w), (s, s), 'same')
+            x = tf.layers.batch_normalization(x, training=training)
+            x = lrelu(x, 0.1)
+        return x
+
     def __call__(self, inputs, training=True):
         with tf.variable_scope(self.name, reuse=self.reuse):
-            with tf.variable_scope('conv1'):
-                x = tf.layers.conv2d(inputs, 64, (5, 5), (2, 2), 'same')
-                x = tf.layers.batch_normalization(x, training=training)
-                x = tf.nn.relu(x)
+            x = inputs
+            x = self._conv(x, 128, 'conv1a', 3, 1, training)
+            x = self._conv(x, 128, 'conv1b', 3, 1, training)
+            x = self._conv(x, 128, 'conv1c', 3, 1, training) # 32 x 32
+            #x = self._conv(x, 128, 'conv1dn', 2, 2, training) 
+            x = tf.layers.dropout(x, training=training)
 
-            with tf.variable_scope('conv2'):
-                x = tf.layers.conv2d(x, 128, (5, 5), (2, 2), 'same')
-                x = tf.layers.batch_normalization(x, training=training)
-                x = lrelu(x)
+            x = self._conv(x, 256, 'conv2a', 3, 2, training)
+            x = self._conv(x, 256, 'conv2b', 3, 1, training)
+            x = self._conv(x, 256, 'conv2c', 3, 1, training) # 16 x 16
+            #x = self._conv(x, 256, 'conv2dn', 2, 2, training)
+            x = tf.layers.dropout(x, training=training)
 
-            with tf.variable_scope('conv3'):
-                x = tf.layers.conv2d(x, 256, (5, 5), (2, 2), 'same')
-                x = tf.layers.batch_normalization(x, training=training)
-                x = lrelu(x)
+            x = self._conv(x, 512, 'conv3a', 3, 2, training)
+            x = self._conv(x, 256, 'conv3b', 1, 1, training)
+            x = self._conv(x, 256, 'conv3c', 1, 1, training) # 8 x 8
+            #x = self._conv(x, 128, 'conv3dn', 2, 2, training)
+            x = tf.layers.dropout(x, training=training)
 
             with tf.variable_scope('conv4'):
-                x = tf.layers.conv2d(x, 512, (5, 5), (2, 2), 'same')
+                x = tf.layers.conv2d(x, 512, (2, 2), (2, 2), 'valid')
                 x = tf.layers.batch_normalization(x, training=training)
-                x = lrelu(x)
+                x = lrelu(x, 0.1)
 
             with tf.variable_scope('global_avg'):
-                x = tf.contrib.layers.flatten(x)
-                x = tf.layers.dense(x, self.metric_dims)
-                x = lrelu(x)
+                x = tf.reduce_mean(x, axis=[1, 2])
 
             with tf.variable_scope('fc1'):
-                z_avg = tf.layers.dense(x, self.z_dims)
-                z_log_var = tf.layers.dense(x, self.z_dims)
-                y = tf.layers.dense(x, self.num_attrs)
+                y = tf.layers.dense(x, self.num_attrs, name='y_predict')
+                z_avg = tf.layers.dense(x, self.z_dims, name='z_avg')
+                z_log_var = tf.layers.dense(x, self.z_dims, name='z_log_var')
 
         self.variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self.name)
         self.reuse = True
@@ -178,7 +188,7 @@ class Discriminator(object):
         return y, f
 
 
-class TriVAEGAN(CondBaseModel):
+class TriVGG(CondBaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
@@ -186,12 +196,12 @@ class TriVAEGAN(CondBaseModel):
         trainer = None,
         **kwargs
     ):
-        super(TriVAEGAN, self).__init__(input_shape=input_shape, name=name, **kwargs)
+        super(TriVGG, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
         self.trainer = trainer
 
         self.z_dims = z_dims
-        self.metric_dims = 2*z_dims
+        self.metric_dims = z_dims*2
 
         self.alpha = 0.7
 
@@ -229,7 +239,7 @@ class TriVAEGAN(CondBaseModel):
         x_r, c_r = batch
         batchsize = len(x_r)
         # z_p = np.random.uniform(-1, 1, size=(len(x_r), self.z_dims))
-
+        '''
         _, _, dis_loss, dis_acc, z_measure = self.sess.run(
             (self.dis_trainer, self.cls_trainer, self.dis_loss, self.dis_acc, self.z_measure),
             feed_dict={
@@ -243,7 +253,16 @@ class TriVAEGAN(CondBaseModel):
                 self.x_r: x_r, self.c_r: c_r
             }
         )
-
+        '''
+        _, gen_loss, z_measure = self.sess.run(
+            (self.enc_trainer, self.gen_loss, self.z_measure),
+            feed_dict={
+                self.x_r: x_r, self.c_r: c_r
+            }
+        )
+        gen_acc = 0
+        dis_loss = 0
+        dis_acc = 0
         summary_priod = 1000
         if index // summary_priod != (index + batchsize) // summary_priod:
             test_samples = self.test_data['test_input']
@@ -277,7 +296,7 @@ class TriVAEGAN(CondBaseModel):
         }
         return self.sess.run(
             fetches, feed_dict={
-                self.test_input: z_samples, 
+                self.test_input: z_samples,
                 self.c_test: c_samples
             }
         )
@@ -323,7 +342,7 @@ class TriVAEGAN(CondBaseModel):
         c_weights = tf.reduce_max(self.c_r, axis=1)
         c_semi = tf.where(self.c_r > 0.01, tf.ones_like(self.c_r), tf.zeros_like(self.c_r))
 
-        enc_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
+        enc_opt = tf.train.AdamOptimizer(learning_rate=1.0e-2, beta1=0.5)
         gen_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         cls_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         dis_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
@@ -346,12 +365,14 @@ class TriVAEGAN(CondBaseModel):
         with tf.name_scope('L_CPC'):
             L_CPC = tf.losses.softmax_cross_entropy(c_semi, self.y_pred, weights=c_weights)
 
-        self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        # self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
         self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
         self.cls_trainer = cls_opt.minimize(L_C, var_list=self.f_cls.variables)
         self.dis_trainer = dis_opt.minimize(L_D, var_list=self.f_dis.variables)
 
-        self.gen_loss = L_G + L_GD + L_GC + L_GT + L_CPC
+        #self.gen_loss = L_G + L_GD + L_GC + L_GT + L_CPC
+        self.gen_loss = L_CPC
         self.dis_loss = L_D
 
         # Predictor

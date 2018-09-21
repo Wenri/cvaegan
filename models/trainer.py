@@ -4,9 +4,27 @@ import time
 import math
 import numpy as np
 import tensorflow as tf
+# We'll use matplotlib for graphics.
+import matplotlib.pyplot as plt
+import threading
 
 from sklearn.neighbors import RadiusNeighborsClassifier
+from sklearn.manifold import TSNE
 from .utils import *
+
+def metric_visualization(data_metric, lbls, attr_names, outfile): 
+    X_embedded = TSNE(n_components=2).fit_transform(data_metric)
+    # plot the result
+    vis_x = X_embedded[:, 0]
+    vis_y = X_embedded[:, 1]
+    n_cls = len(self.datasets.attr_names)
+    plt.scatter(vis_x, vis_y, 
+        c=lbls, marker='.',
+        cmap=plt.cm.get_cmap("jet", n_cls))
+    plt.colorbar(ticks=range(n_cls)).set_ticklabels(attr_names)
+    plt.clim(-0.5, 9.5)
+    plt.savefig(outfile)
+    plt.close()
 
 class SemiTrainer(object):
     def __init__(self, datasets, batchsize):
@@ -17,7 +35,7 @@ class SemiTrainer(object):
         self.perm = None
         self.test_mode = False
 
-    def init_semi_perm(self, semi_ratio = 0.90):
+    def init_semi_perm(self, semi_ratio = 0.00):
         self.num_semi = int(len(self.datasets) * semi_ratio)
         self.perm = np.random.permutation(len(self.datasets))
         self.perm_semi = self.perm[:self.num_semi]
@@ -38,7 +56,6 @@ class SemiTrainer(object):
         imgs_t, c_t = self.datasets.get_test_data()
         self.test_data = {'test_input': imgs_t, 'c_test': c_t}
         model.test_data = self.test_data
-        self.data_metric = np.zeros((len(self.datasets), model.metric_dims), dtype=np.float32)
 
     def create_directory(self, model):
         # Create output directories if not exist
@@ -79,11 +96,24 @@ class SemiTrainer(object):
     def update_weights(self, indx, results):
         self.data_metric[indx, :] = results['z_measure']
 
+    def metric_visualization(self, e):
+        threading.Thread(target=metric_visualization, kwargs=dict(
+            data_metric = self.data_metric[self.perm_full],
+            lbls = np.argmax(self.datasets.attrs[self.perm_full], axis=1),
+            attr_names = self.datasets.attr_names,
+            outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.png' % (e + 1))
+            )
+        ).start()
+
     def label_propagation(self, model):
-        radnn = RadiusNeighborsClassifier(radius=0.1, outlier_label=np.zeros(model.num_attrs))
+        if len(self.perm_semi) == 0:
+            return
+
+        radnn = RadiusNeighborsClassifier(radius=2, outlier_label=np.zeros(model.num_attrs))
         radnn.fit(self.data_metric[self.perm_full], self.datasets.attrs[self.perm_full])
         lbls = radnn.predict(self.data_metric[self.perm_semi])
-        self.datasets.attrs[self.perm_semi, :] = lbls
+        self.datasets.attrs[self.perm_semi, :] = 0.5*lbls
+        print("Label Propagation: %d" % np.count_nonzero(np.any(lbls, axis=1)))
 
     def do_batch(self, model, e, b):
         num_data = len(self.datasets)
@@ -136,6 +166,7 @@ class SemiTrainer(object):
 
             print('\n\n--- START TRAINING ---\n')
             for e in range(self.current_epoch.eval(), epochs):
+                self.data_metric = np.zeros((len(self.datasets), model.metric_dims), dtype=np.float32)
                 self.shuffle_semi_perm()
                 self.start_time = time.time()
                 for b in range(self.current_batch.eval(), num_data, self.batchsize):
@@ -146,7 +177,8 @@ class SemiTrainer(object):
                         print('\nFinish testing: %s' % self.name)
                         return      
                 print('')
-                self.label_propagation(model)
+                #self.metric_visualization(e)
+                if e > 1: self.label_propagation(model)
                 model.sess.run(update_epoch)
 
         print('Finished training')

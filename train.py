@@ -10,11 +10,12 @@ matplotlib.use('Agg')
 import tensorflow as tf
 
 from models import *
-from datasets import load_data, mnist, svhn
+from datasets import load_data, mnist, svhn, cifar10
 
 models = {
     'cvaegan': CVAEGAN,
-    'trivaegan': TriVAEGAN
+    'trivaegan': TriVAEGAN,
+    'trivgg': TriVGG
 }
 
 def main(_):
@@ -45,6 +46,8 @@ def main(_):
         datasets = mnist.load_data()
     elif args.dataset == 'svhn':
         datasets = svhn.load_data()
+    elif args.dataset == 'cifar10':
+        datasets = cifar10.load_data()
     else:
         datasets = load_data(args.dataset, args.datasize)
 
@@ -74,6 +77,8 @@ def main(_):
     trainer.main_loop(model,
         epochs=args.epoch
     )
+
+    input("Press Enter to continue...")
 
 if __name__ == '__main__':
     tf.app.run(main)
