@@ -13,9 +13,11 @@ def approxProp(A, B, g, w):
     e, the propagated edit parameters
     '''
     U=concatenate((A,B))
+    g=g.reshape(-1,1)
+    w=w.reshape(-1,1)
     lamda=mean(w)
 
-    one=matmul(0.5/lamda*U, solve(A,matmul(U.T,w)))
+    one=0.5/lamda*matmul(U, solve(A,matmul(U.T,w)))
     two=matmul(U, solve(A, np.sum(U.T, axis=1, keepdims=True)))
     dinv=1/(one+two)
 
@@ -26,6 +28,9 @@ def approxProp(A, B, g, w):
     return e
 
 def fullProp(Z, g, w):
+
+    g=g.reshape(-1,1)
+    w=w.reshape(-1,1)
     lamda=mean(w)
 
     d=matmul(Z, 1+0.5*w/lamda)

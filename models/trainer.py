@@ -71,10 +71,14 @@ class SemiTrainer(object):
         if not os.path.isdir(self.chk_out_dir):
             os.makedirs(self.chk_out_dir)
 
+        outfile = os.path.join(self.res_out_dir, 'datasets_attrs.npz')
+        np.save(outfile, self.datasets.attrs)
+        
         time_str = time.strftime('%Y%m%d_%H%M%S', time.localtime())
         log_out_dir = os.path.join(self.out_dir, 'log', time_str)
         if not os.path.isdir(log_out_dir):
             os.makedirs(log_out_dir)
+
         return log_out_dir
 
     def print_eta(self, e, b, bsize):
@@ -105,7 +109,9 @@ class SemiTrainer(object):
             )
         ).start()
 
-    def label_propagation(self, model):
+    def label_propagation(self, model, e):
+        outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.npz' % (e + 1))
+        np.save(outfile, self.data_metric)
         if len(self.perm_semi) == 0:
             return
 
@@ -178,7 +184,7 @@ class SemiTrainer(object):
                         return      
                 print('')
                 #self.metric_visualization(e)
-                if e > 1: self.label_propagation(model)
+                if e > 1: self.label_propagation(model, e)
                 model.sess.run(update_epoch)
 
         print('Finished training')
