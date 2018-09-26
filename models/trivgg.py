@@ -247,8 +247,9 @@ class TriVGG(CondBaseModel):
             }
         )
 
-        _, _, gen_loss, gen_acc = self.sess.run(
-            (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc),
+        '''
+        _, _, gen_loss, gen_acc, z_measure = self.sess.run(
+            (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc, self.z_measure),
             feed_dict={
                 self.x_r: x_r, self.c_r: c_r
             }
@@ -260,7 +261,7 @@ class TriVGG(CondBaseModel):
                 self.x_r: x_r, self.c_r: c_r
             }
         )
-        gen_acc = 0
+        '''
         dis_loss = 0
         dis_acc = 0
         summary_priod = 1000
@@ -342,7 +343,7 @@ class TriVGG(CondBaseModel):
         c_weights = tf.reduce_max(self.c_r, axis=1)
         c_semi = tf.where(self.c_r > 0.01, tf.ones_like(self.c_r), tf.zeros_like(self.c_r))
 
-        enc_opt = tf.train.AdamOptimizer(learning_rate=1.0e-2, beta1=0.5)
+        enc_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         gen_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         cls_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
         dis_opt = tf.train.AdamOptimizer(learning_rate=2.0e-4, beta1=0.5)
@@ -355,6 +356,10 @@ class TriVGG(CondBaseModel):
         L_G = self.L_G(self.x_r, x_f, f_D_r, f_D_f, f_C_r, f_C_f)
         L_GT = self.L_Metric(self.z_measure, c_semi, c_weights > 0.1)
 
+        with tf.name_scope('L_rec'):
+            # L_rec =  0.5 * tf.losses.mean_squared_error(self.x_r, x_f)
+            L_rec = 0.01 * tf.reduce_mean(tf.reduce_sum(tf.squared_difference(self.x_r, x_f), axis=[1, 2, 3]))
+
         with tf.name_scope('L_D'):
             L_D = tf.losses.sigmoid_cross_entropy(tf.ones_like(y_r), y_r) + \
                   tf.losses.sigmoid_cross_entropy(tf.zeros_like(y_f), y_f)
@@ -366,8 +371,9 @@ class TriVGG(CondBaseModel):
             L_CPC = tf.losses.softmax_cross_entropy(c_semi, self.y_pred, weights=c_weights)
 
         # self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
-        self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
-        self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
+        self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        # self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
+        self.gen_trainer = gen_opt.minimize(L_rec, var_list=self.f_gen.variables)
         self.cls_trainer = cls_opt.minimize(L_C, var_list=self.f_cls.variables)
         self.dis_trainer = dis_opt.minimize(L_D, var_list=self.f_dis.variables)
 

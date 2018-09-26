@@ -35,7 +35,7 @@ class SemiTrainer(object):
         self.perm = None
         self.test_mode = False
 
-    def init_semi_perm(self, semi_ratio = 0.00):
+    def init_semi_perm(self, semi_ratio = 0.5):
         self.num_semi = int(len(self.datasets) * semi_ratio)
         self.perm = np.random.permutation(len(self.datasets))
         self.perm_semi = self.perm[:self.num_semi]
@@ -110,15 +110,15 @@ class SemiTrainer(object):
         ).start()
 
     def label_propagation(self, model, e):
-        outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.npz' % (e + 1))
-        np.save(outfile, self.data_metric)
+        # outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.npz' % (e + 1))
+        # np.save(outfile, self.data_metric)
         if len(self.perm_semi) == 0:
             return
 
         radnn = RadiusNeighborsClassifier(radius=2, outlier_label=np.zeros(model.num_attrs))
         radnn.fit(self.data_metric[self.perm_full], self.datasets.attrs[self.perm_full])
         lbls = radnn.predict(self.data_metric[self.perm_semi])
-        self.datasets.attrs[self.perm_semi, :] = 0.5*lbls
+        self.datasets.attrs[self.perm_semi, :] = 0.11*lbls
         print("Label Propagation: %d" % np.count_nonzero(np.any(lbls, axis=1)))
 
     def do_batch(self, model, e, b):
@@ -184,7 +184,7 @@ class SemiTrainer(object):
                         return      
                 print('')
                 #self.metric_visualization(e)
-                if e > 1: self.label_propagation(model, e)
+                if e > 20: self.label_propagation(model, e)
                 model.sess.run(update_epoch)
 
         print('Finished training')
