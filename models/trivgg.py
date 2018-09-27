@@ -246,7 +246,6 @@ class TriVGG(CondBaseModel):
                 self.x_r: x_r, self.c_r: c_r
             }
         )
-
         _, _, gen_loss, gen_acc, z_measure = self.sess.run(
             (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc, self.z_measure),
             feed_dict={

@@ -125,12 +125,14 @@ class SemiTrainer(object):
     def label_propagation(self, model, e):
         if len(self.perm_semi) == 0:
             return
-
         radnn = RadiusNeighborsClassifier(radius=2, outlier_label=np.zeros(model.num_attrs))
         radnn.fit(self.data_metric[self.perm_full], self.datasets.attrs[self.perm_full])
         lbls = radnn.predict(self.data_metric[self.perm_semi])
-        self.datasets.attrs[self.perm_semi, :] = 0.11*lbls
         print("Label Propagation: %d" % np.count_nonzero(np.any(lbls, axis=1)))
+        coherence = np.argmax(self.data_labels) == np.argmax(lbls, axis=1)
+        print("Label Coherence: %d" % np.count_nonzero(coherence))
+        lbls[coherence == 0] = 0
+        self.datasets.attrs[self.perm_semi, :] = 0.11*lbls
 
     def do_batch(self, model, e, b):
         num_data = len(self.datasets)
