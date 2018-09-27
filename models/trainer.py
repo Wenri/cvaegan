@@ -34,8 +34,10 @@ class SemiTrainer(object):
         self.batchsize = batchsize
         self.perm = None
         self.test_mode = False
+        self.data_metric = None
+        self.data_labels = None
 
-    def init_semi_perm(self, semi_ratio = 0.5):
+    def init_semi_perm(self, semi_ratio = 0.9):
         self.num_semi = int(len(self.datasets) * semi_ratio)
         self.perm = np.random.permutation(len(self.datasets))
         self.perm_semi = self.perm[:self.num_semi]
@@ -71,7 +73,7 @@ class SemiTrainer(object):
         if not os.path.isdir(self.chk_out_dir):
             os.makedirs(self.chk_out_dir)
 
-        outfile = os.path.join(self.res_out_dir, 'datasets_attrs.npz')
+        outfile = os.path.join(self.res_out_dir, 'datasets_attrs')
         np.save(outfile, self.datasets.attrs)
         
         time_str = time.strftime('%Y%m%d_%H%M%S', time.localtime())
@@ -97,21 +99,30 @@ class SemiTrainer(object):
             if (i + 1) % 3 == 0:
                 print('')
 
-    def update_weights(self, indx, results):
-        self.data_metric[indx, :] = results['z_measure']
+    def update_metrics(self, model, e):
+        num_data = len(self.datasets)
+        for b in range(self.current_batch.eval(), num_data, self.batchsize):
+            # Check batch size
+            bsize = min(self.batchsize, num_data - b)
+            x_batch = (self.datasets.images[b:b+bsize], self.datasets.attrs[b:b+bsize])
+            ret_batch = model.predict(x_batch)
+            self.data_metric[b:b+bsize, :] = ret_batch['z_measure']
+            self.data_labels[b:b+bsize, :] = ret_batch['y_predict']
 
     def metric_visualization(self, e):
-        threading.Thread(target=metric_visualization, kwargs=dict(
-            data_metric = self.data_metric[self.perm_full],
-            lbls = np.argmax(self.datasets.attrs[self.perm_full], axis=1),
-            attr_names = self.datasets.attr_names,
-            outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.png' % (e + 1))
-            )
-        ).start()
+        outfile = os.path.join(self.res_out_dir, 'data_metric')
+        np.save(outfile, self.data_metric)
+        outfile = os.path.join(self.res_out_dir, 'data_labels')
+        np.save(outfile, self.data_labels)
+        # threading.Thread(target=metric_visualization, kwargs=dict(
+        #     data_metric = self.data_metric[self.perm_full],
+        #     lbls = np.argmax(self.datasets.attrs[self.perm_full], axis=1),
+        #     attr_names = self.datasets.attr_names,
+        #     outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.png' % (e + 1))
+        #     )
+        # ).start()
 
     def label_propagation(self, model, e):
-        # outfile = os.path.join(self.res_out_dir, 'metric_epoch_%04d.npz' % (e + 1))
-        # np.save(outfile, self.data_metric)
         if len(self.perm_semi) == 0:
             return
 
@@ -135,7 +146,7 @@ class SemiTrainer(object):
         
         self.print_eta(e, b, bsize)
         self.print_losses(ret_batch.losses)
-        self.update_weights(indx, ret_batch.results)
+        # self.update_weights(indx, ret_batch.results)
 
         print('\n')
         sys.stdout.flush()
@@ -173,6 +184,7 @@ class SemiTrainer(object):
             print('\n\n--- START TRAINING ---\n')
             for e in range(self.current_epoch.eval(), epochs):
                 self.data_metric = np.zeros((len(self.datasets), model.metric_dims), dtype=np.float32)
+                self.data_labels = np.zeros((len(self.datasets), model.num_attrs), dtype=np.float32)
                 self.shuffle_semi_perm()
                 self.start_time = time.time()
                 for b in range(self.current_batch.eval(), num_data, self.batchsize):
@@ -181,10 +193,12 @@ class SemiTrainer(object):
                     self.do_batch(model, e, b)
                     if self.test_mode:
                         print('\nFinish testing: %s' % self.name)
-                        return      
+                        return
                 print('')
-                #self.metric_visualization(e)
-                if e > 20: self.label_propagation(model, e)
+                if e > 100:
+                    self.update_metrics(model, e)
+                    self.metric_visualization(e)
+                    self.label_propagation(model, e)
                 model.sess.run(update_epoch)
 
         print('Finished training')

@@ -247,7 +247,6 @@ class TriVGG(CondBaseModel):
             }
         )
 
-        '''
         _, _, gen_loss, gen_acc, z_measure = self.sess.run(
             (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc, self.z_measure),
             feed_dict={
@@ -261,7 +260,7 @@ class TriVGG(CondBaseModel):
                 self.x_r: x_r, self.c_r: c_r
             }
         )
-        '''
+        gen_acc = 0
         dis_loss = 0
         dis_acc = 0
         summary_priod = 1000
@@ -371,14 +370,15 @@ class TriVGG(CondBaseModel):
             L_CPC = tf.losses.softmax_cross_entropy(c_semi, self.y_pred, weights=c_weights)
 
         # self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
-        self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        # self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
         # self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
         self.gen_trainer = gen_opt.minimize(L_rec, var_list=self.f_gen.variables)
         self.cls_trainer = cls_opt.minimize(L_C, var_list=self.f_cls.variables)
         self.dis_trainer = dis_opt.minimize(L_D, var_list=self.f_dis.variables)
 
-        #self.gen_loss = L_G + L_GD + L_GC + L_GT + L_CPC
-        self.gen_loss = L_CPC
+        # self.gen_loss = L_G + L_GD + L_GC + L_GT + L_CPC
+        self.gen_loss = L_GT + L_CPC
         self.dis_loss = L_D
 
         # Predictor
@@ -495,6 +495,9 @@ class TriVGG(CondBaseModel):
             two_labels = tf.count_nonzero(tf.reduce_sum(c_m, axis=0) > 1.1)
             cond = tf.logical_and(two_labels>0, n_labels>1)
             return tf.cond(tf.Print(cond, [n_labels, two_labels, cond], 'Labels: '),
-                lambda: tf.contrib.losses.metric_learning.triplet_semihard_loss(
-                labels = tf.argmax(c_m, axis=1), embeddings = z_m, margin=0.2), 
+                lambda: tf.reduce_mean(
+                    tf.reduce_max(c_m, axis=1)
+                ) * tf.contrib.losses.metric_learning.triplet_semihard_loss(
+                    labels = tf.argmax(c_m, axis=1), embeddings = z_m, margin=0.2
+                ),
                 lambda: tf.constant(0, dtype=tf.float32))
