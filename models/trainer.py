@@ -17,7 +17,7 @@ def metric_visualization(data_metric, lbls, attr_names, outfile):
     # plot the result
     vis_x = X_embedded[:, 0]
     vis_y = X_embedded[:, 1]
-    n_cls = len(self.datasets.attr_names)
+    n_cls = len(attr_names)
     plt.scatter(vis_x, vis_y, 
         c=lbls, marker='.',
         cmap=plt.cm.get_cmap("jet", n_cls))
@@ -25,6 +25,11 @@ def metric_visualization(data_metric, lbls, attr_names, outfile):
     plt.clim(-0.5, 9.5)
     plt.savefig(outfile)
     plt.close()
+
+def softmax(x, axis=None):
+    x = x - x.max(axis=axis, keepdims=True)
+    y = np.exp(x)
+    return y / y.sum(axis=axis, keepdims=True)
 
 class SemiTrainer(object):
     def __init__(self, datasets, batchsize):
@@ -38,20 +43,22 @@ class SemiTrainer(object):
         self.data_labels = None
 
     def init_semi_perm(self, semi_ratio = 0.9):
-        self.num_semi = int(len(self.datasets) * semi_ratio)
+        semi_tgts, mask_train, mask_confidence = self.datasets.get_semi_labels()
+        self.semi_mask = mask_train == 0
         self.perm = np.random.permutation(len(self.datasets))
-        self.perm_semi = self.perm[:self.num_semi]
-        self.perm_full = self.perm[self.num_semi:]
-        self.semi_mask = np.zeros(len(self.datasets), dtype=np.float32)
-        self.semi_mask[self.perm_semi] = 1
-        self.datasets.attrs[self.perm_semi, :] = 0
+        self.num_semi = np.count_nonzero(self.semi_mask)
+        self.datasets.attrs[self.semi_mask, :] = 0
+        semi_confidence_mask = np.logical_and(self.semi_mask, mask_confidence)
+        self.datasets.attrs[semi_confidence_mask, :] = 0.8 * semi_tgts[semi_confidence_mask, :]
+
+        print("Num Semi: %d" % self.num_semi)
+
         return self.perm
 
     def shuffle_semi_perm(self):
         if self.perm is None:
             return self.init_semi_perm()
-        np.random.shuffle(self.perm_semi)
-        np.random.shuffle(self.perm_full)
+        self.perm = np.random.permutation(len(self.datasets))
         return self.perm
 
     def prepare_test_data(self, model):
@@ -72,9 +79,6 @@ class SemiTrainer(object):
         self.chk_out_dir = os.path.join(self.out_dir, 'checkpoints')
         if not os.path.isdir(self.chk_out_dir):
             os.makedirs(self.chk_out_dir)
-
-        outfile = os.path.join(self.res_out_dir, 'datasets_attrs')
-        np.save(outfile, self.datasets.attrs)
         
         time_str = time.strftime('%Y%m%d_%H%M%S', time.localtime())
         log_out_dir = os.path.join(self.out_dir, 'log', time_str)
@@ -110,10 +114,9 @@ class SemiTrainer(object):
             self.data_labels[b:b+bsize, :] = ret_batch['y_predict']
 
     def metric_visualization(self, e):
-        outfile = os.path.join(self.res_out_dir, 'data_metric')
-        np.save(outfile, self.data_metric)
-        outfile = os.path.join(self.res_out_dir, 'data_labels')
-        np.save(outfile, self.data_labels)
+        outfile = os.path.join(self.res_out_dir, 'data_metric_epoch_%d' % e)
+        np.savez(outfile, data_metric = self.data_metric, data_labels = self.data_labels)
+
         # threading.Thread(target=metric_visualization, kwargs=dict(
         #     data_metric = self.data_metric[self.perm_full],
         #     lbls = np.argmax(self.datasets.attrs[self.perm_full], axis=1),
@@ -123,16 +126,19 @@ class SemiTrainer(object):
         # ).start()
 
     def label_propagation(self, model, e):
-        if len(self.perm_semi) == 0:
+        if self.num_semi <= 0:
             return
-        radnn = RadiusNeighborsClassifier(radius=2, outlier_label=np.zeros(model.num_attrs))
-        radnn.fit(self.data_metric[self.perm_full], self.datasets.attrs[self.perm_full])
-        lbls = radnn.predict(self.data_metric[self.perm_semi])
+        radnn = RadiusNeighborsClassifier(radius=3, outlier_label=np.zeros(model.num_attrs))
+        radnn.fit(self.data_metric[self.semi_mask==0], self.datasets.attrs[self.semi_mask==0])
+        lbls = radnn.predict(self.data_metric[self.semi_mask])
         print("Label Propagation: %d" % np.count_nonzero(np.any(lbls, axis=1)))
-        coherence = np.argmax(self.data_labels) == np.argmax(lbls, axis=1)
-        print("Label Coherence: %d" % np.count_nonzero(coherence))
-        lbls[coherence == 0] = 0
-        self.datasets.attrs[self.perm_semi, :] = 0.11*lbls
+        coherence = np.argmax(self.data_labels[self.semi_mask], axis=1) == np.argmax(lbls, axis=1)
+        confidence = np.max(softmax(self.data_labels[self.semi_mask]), axis=1) > 0.95
+        coh_and_cof = np.logical_and(coherence, confidence)
+        print("Label Coherence: %d, confidence: %d, coh_and_cof: %d" %
+              (np.count_nonzero(coherence), np.count_nonzero(confidence), np.count_nonzero(coh_and_cof)))
+        lbls[coh_and_cof == 0] = 0
+        self.datasets.attrs[self.semi_mask, :] = 0.21*lbls
 
     def do_batch(self, model, e, b):
         num_data = len(self.datasets)
@@ -197,7 +203,7 @@ class SemiTrainer(object):
                         print('\nFinish testing: %s' % self.name)
                         return
                 print('')
-                if e > 100:
+                if e > 50:
                     self.update_metrics(model, e)
                     self.metric_visualization(e)
                     self.label_propagation(model, e)

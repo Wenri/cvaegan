@@ -239,27 +239,25 @@ class TriVGG(CondBaseModel):
         x_r, c_r = batch
         batchsize = len(x_r)
         # z_p = np.random.uniform(-1, 1, size=(len(x_r), self.z_dims))
-        '''
-        _, _, dis_loss, dis_acc, z_measure = self.sess.run(
-            (self.dis_trainer, self.cls_trainer, self.dis_loss, self.dis_acc, self.z_measure),
-            feed_dict={
-                self.x_r: x_r, self.c_r: c_r
-            }
-        )
+        # _, _, dis_loss, dis_acc, z_measure = self.sess.run(
+        #     (self.dis_trainer, self.cls_trainer, self.dis_loss, self.dis_acc, self.z_measure),
+        #     feed_dict={
+        #         self.x_r: x_r, self.c_r: c_r
+        #     }
+        # )
         _, _, gen_loss, gen_acc, z_measure = self.sess.run(
             (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc, self.z_measure),
             feed_dict={
                 self.x_r: x_r, self.c_r: c_r
             }
         )
-        '''
-        _, gen_loss, z_measure = self.sess.run(
-            (self.enc_trainer, self.gen_loss, self.z_measure),
-            feed_dict={
-                self.x_r: x_r, self.c_r: c_r
-            }
-        )
-        gen_acc = 0
+        # _, gen_loss, z_measure = self.sess.run(
+        #     (self.enc_trainer, self.gen_loss, self.z_measure),
+        #     feed_dict={
+        #         self.x_r: x_r, self.c_r: c_r
+        #     }
+        # )
+        # gen_acc = 0
         dis_loss = 0
         dis_acc = 0
         summary_priod = 1000
@@ -356,7 +354,7 @@ class TriVGG(CondBaseModel):
 
         with tf.name_scope('L_rec'):
             # L_rec =  0.5 * tf.losses.mean_squared_error(self.x_r, x_f)
-            L_rec = 0.01 * tf.reduce_mean(tf.reduce_sum(tf.squared_difference(self.x_r, x_f), axis=[1, 2, 3]))
+            L_rec = 0.1 * tf.reduce_mean(tf.reduce_sum(tf.squared_difference(self.x_r, x_f), axis=[1, 2, 3]))
 
         with tf.name_scope('L_D'):
             L_D = tf.losses.sigmoid_cross_entropy(tf.ones_like(y_r), y_r) + \
@@ -369,8 +367,8 @@ class TriVGG(CondBaseModel):
             L_CPC = tf.losses.softmax_cross_entropy(c_semi, self.y_pred, weights=c_weights)
 
         # self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
-        # self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
-        self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
+        self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        # self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
         # self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
         self.gen_trainer = gen_opt.minimize(L_rec, var_list=self.f_gen.variables)
         self.cls_trainer = cls_opt.minimize(L_C, var_list=self.f_cls.variables)
