@@ -22,7 +22,7 @@ class load_data(ConditionalDataset):
                                 num_classes=num_classes)
         return images, attrs
 
-    def get_semi_labels(self, em_file='ensemble_prediction_epoch_160.npz'):
+    def get_semi_labels(self, em_file='ensemble_prediction_epoch_299.npz'):
         em = np.load(em_file)
         pred = em['ensemble_prediction']
         tgts = one_hot_encoded(class_numbers=np.argmax(pred, axis=1),

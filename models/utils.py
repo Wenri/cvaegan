@@ -15,6 +15,11 @@ def binary_accuracy(y_true, y_pred):
     with tf.name_scope('BinaryAccuracy'):
         return tf.reduce_mean(tf.cast(tf.equal(y_true, tf.round(tf.sigmoid(y_pred))), dtype=tf.float32))
 
+def gaussian_noise_layer(input_layer, std):
+    with tf.name_scope('GaussianNoiseLayer'):
+        noise = tf.random_normal(shape=tf.shape(input_layer), mean=0.0, stddev=std, dtype=tf.float32)
+        return input_layer + noise
+
 def sample_normal(avg, log_var):
     with tf.name_scope('SampleNormal'):
         epsilon = tf.random_normal(tf.shape(avg))

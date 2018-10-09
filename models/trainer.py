@@ -8,7 +8,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import threading
 
-from sklearn.neighbors import RadiusNeighborsClassifier
+from sklearn.neighbors import RadiusNeighborsClassifier,KNeighborsClassifier
 from sklearn.manifold import TSNE
 from .utils import *
 
@@ -49,7 +49,7 @@ class SemiTrainer(object):
         self.num_semi = np.count_nonzero(self.semi_mask)
         self.datasets.attrs[self.semi_mask, :] = 0
         semi_confidence_mask = np.logical_and(self.semi_mask, mask_confidence)
-        self.datasets.attrs[semi_confidence_mask, :] = 0.8 * semi_tgts[semi_confidence_mask, :]
+        self.datasets.attrs[semi_confidence_mask, :] = 0.5 * semi_tgts[semi_confidence_mask, :]
 
         print("Num Semi: %d" % self.num_semi)
 
@@ -114,7 +114,9 @@ class SemiTrainer(object):
             self.data_labels[b:b+bsize, :] = ret_batch['y_predict']
 
     def metric_visualization(self, e):
-        outfile = os.path.join(self.res_out_dir, 'data_metric_epoch_%d' % e)
+        if e % 50 != 0:
+            return
+        outfile = os.path.join(self.res_out_dir, 'data_metric_epoch_%d' % (e+1))
         np.savez(outfile, data_metric = self.data_metric, data_labels = self.data_labels)
 
         # threading.Thread(target=metric_visualization, kwargs=dict(
@@ -128,17 +130,21 @@ class SemiTrainer(object):
     def label_propagation(self, model, e):
         if self.num_semi <= 0:
             return
-        radnn = RadiusNeighborsClassifier(radius=3, outlier_label=np.zeros(model.num_attrs))
+#        radnn = RadiusNeighborsClassifier(radius=2, outlier_label=np.zeros(model.num_attrs))
+        radnn = KNeighborsClassifier(n_neighbors=5, weights='distance')
         radnn.fit(self.data_metric[self.semi_mask==0], self.datasets.attrs[self.semi_mask==0])
         lbls = radnn.predict(self.data_metric[self.semi_mask])
-        print("Label Propagation: %d" % np.count_nonzero(np.any(lbls, axis=1)))
-        coherence = np.argmax(self.data_labels[self.semi_mask], axis=1) == np.argmax(lbls, axis=1)
-        confidence = np.max(softmax(self.data_labels[self.semi_mask]), axis=1) > 0.95
+        lbls_mask = np.any(lbls, axis=1)
+        print("Label Propagation: %d" % np.count_nonzero(lbls_mask))
+        data_consider = self.data_labels[self.semi_mask]
+        coherence = np.argmax(data_consider, axis=1) == np.argmax(lbls, axis=1)
+        coherence[lbls_mask==0] = 0
+        confidence = np.max(softmax(data_consider, axis=1), axis=1) > 0.9
         coh_and_cof = np.logical_and(coherence, confidence)
         print("Label Coherence: %d, confidence: %d, coh_and_cof: %d" %
               (np.count_nonzero(coherence), np.count_nonzero(confidence), np.count_nonzero(coh_and_cof)))
         lbls[coh_and_cof == 0] = 0
-        self.datasets.attrs[self.semi_mask, :] = 0.21*lbls
+        self.datasets.attrs[self.semi_mask, :] = 0.5*lbls
 
     def do_batch(self, model, e, b):
         num_data = len(self.datasets)
@@ -203,7 +209,7 @@ class SemiTrainer(object):
                         print('\nFinish testing: %s' % self.name)
                         return
                 print('')
-                if e > 50:
+                if e+1 >= 50:
                     self.update_metrics(model, e)
                     self.metric_visualization(e)
                     self.label_propagation(model, e)

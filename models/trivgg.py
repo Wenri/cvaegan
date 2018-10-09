@@ -17,38 +17,31 @@ class Encoder(object):
         self.num_attrs = num_attrs
         self.name = 'encoder'
 
-    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True):
+    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='same'):
         with tf.variable_scope(name):
-            x = tf.layers.conv2d(inputs, filter, (w, w), (s, s), 'same')
+            x = tf.layers.conv2d(inputs, filter, (w, w), (s, s), padding)
             x = tf.layers.batch_normalization(x, training=training)
             x = lrelu(x, 0.1)
         return x
 
     def __call__(self, inputs, training=True):
         with tf.variable_scope(self.name, reuse=self.reuse):
-            x = inputs
+            x = gaussian_noise_layer(inputs, 0.15)
             x = self._conv(x, 128, 'conv1a', 3, 1, training)
             x = self._conv(x, 128, 'conv1b', 3, 1, training)
             x = self._conv(x, 128, 'conv1c', 3, 1, training) # 32 x 32
-            #x = self._conv(x, 128, 'conv1dn', 2, 2, training) 
-            x = tf.layers.dropout(x, training=training)
+            x = tf.layers.max_pooling2d(x, 2, 2, name='pool1')
+            x = tf.layers.dropout(x, name='drop1', training=training)
 
-            x = self._conv(x, 256, 'conv2a', 3, 2, training)
+            x = self._conv(x, 256, 'conv2a', 3, 1, training)
             x = self._conv(x, 256, 'conv2b', 3, 1, training)
             x = self._conv(x, 256, 'conv2c', 3, 1, training) # 16 x 16
-            #x = self._conv(x, 256, 'conv2dn', 2, 2, training)
-            x = tf.layers.dropout(x, training=training)
+            x = tf.layers.max_pooling2d(x, 2, 2, name='pool2')
+            x = tf.layers.dropout(x, name='drop2', training=training)
 
-            x = self._conv(x, 512, 'conv3a', 3, 2, training)
+            x = self._conv(x, 512, 'conv3a', 3, 1, training, 'valid')
             x = self._conv(x, 256, 'conv3b', 1, 1, training)
-            x = self._conv(x, 256, 'conv3c', 1, 1, training) # 8 x 8
-            #x = self._conv(x, 128, 'conv3dn', 2, 2, training)
-            x = tf.layers.dropout(x, training=training)
-
-            with tf.variable_scope('conv4'):
-                x = tf.layers.conv2d(x, 512, (2, 2), (2, 2), 'valid')
-                x = tf.layers.batch_normalization(x, training=training)
-                x = lrelu(x, 0.1)
+            x = self._conv(x, self.metric_dims, 'conv3c', 1, 1, training) # 8 x 8
 
             with tf.variable_scope('global_avg'):
                 x = tf.reduce_mean(x, axis=[1, 2])
@@ -201,7 +194,7 @@ class TriVGG(CondBaseModel):
         self.trainer = trainer
 
         self.z_dims = z_dims
-        self.metric_dims = z_dims*2
+        self.metric_dims = z_dims
 
         self.alpha = 0.7
 
@@ -245,19 +238,19 @@ class TriVGG(CondBaseModel):
         #         self.x_r: x_r, self.c_r: c_r
         #     }
         # )
-        _, _, gen_loss, gen_acc, z_measure = self.sess.run(
-            (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc, self.z_measure),
-            feed_dict={
-                self.x_r: x_r, self.c_r: c_r
-            }
-        )
-        # _, gen_loss, z_measure = self.sess.run(
-        #     (self.enc_trainer, self.gen_loss, self.z_measure),
+        # _, _, gen_loss, gen_acc, z_measure = self.sess.run(
+        #     (self.gen_trainer, self.enc_trainer, self.gen_loss, self.gen_acc, self.z_measure),
         #     feed_dict={
         #         self.x_r: x_r, self.c_r: c_r
         #     }
         # )
-        # gen_acc = 0
+        _, gen_loss, z_measure = self.sess.run(
+            (self.enc_trainer, self.gen_loss, self.z_measure),
+            feed_dict={
+                self.x_r: x_r, self.c_r: c_r
+            }
+        )
+        gen_acc = 0
         dis_loss = 0
         dis_acc = 0
         summary_priod = 1000
@@ -367,8 +360,8 @@ class TriVGG(CondBaseModel):
             L_CPC = tf.losses.softmax_cross_entropy(c_semi, self.y_pred, weights=c_weights)
 
         # self.enc_trainer = enc_opt.minimize(L_G + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
-        self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
-        # self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
+        # self.enc_trainer = enc_opt.minimize(L_rec + L_KL + L_GT + L_CPC, var_list=self.f_enc.variables)
+        self.enc_trainer = enc_opt.minimize(L_GT + L_CPC, var_list=self.f_enc.variables)
         # self.gen_trainer = gen_opt.minimize(L_G + L_GD + L_GC, var_list=self.f_gen.variables)
         self.gen_trainer = gen_opt.minimize(L_rec, var_list=self.f_gen.variables)
         self.cls_trainer = cls_opt.minimize(L_C, var_list=self.f_cls.variables)
