@@ -7,7 +7,7 @@ def kl_loss(avg, log_var):
     with tf.name_scope('KLLoss'):
         return tf.reduce_mean(-0.5 * tf.reduce_sum(1.0 + log_var - tf.square(avg) - tf.exp(log_var), axis=-1))
 
-def lrelu(x, alpha=0.02):
+def lrelu(x, alpha=0.1):
     with tf.name_scope('LeakyReLU'):
         return tf.maximum(x, alpha * x)
 

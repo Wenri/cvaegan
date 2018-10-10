@@ -5,7 +5,7 @@ import tensorflow as tf
 from types import SimpleNamespace
 from .base import CondBaseModel
 from .utils import *
-from .nn import conv2d, lRelu, globalAvgPool
+from .nn import conv2d
 #from ..appprop import appProp
 
 class Encoder(object):
@@ -18,8 +18,16 @@ class Encoder(object):
         self.num_attrs = num_attrs
         self.name = 'encoder'
 
-    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='SAME'):
-        x = conv2d(inputs, filter, [w, w], stride=[s, s], pad=padding, nonlinearity=lRelu,
+
+    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='same'):
+        with tf.variable_scope(name):
+            x = tf.layers.conv2d(inputs, filter, (w, w), (s, s), padding)
+            x = tf.layers.batch_normalization(x, training=training)
+            x = lrelu(x, 0.1)
+        return x
+
+    def _convwn(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='SAME'):
+        x = conv2d(inputs, filter, [w, w], stride=[s, s], pad=padding, nonlinearity=lrelu,
                    use_weight_normalization=True, use_mean_only_batch_normalization=True, name=name)
         return x
 
@@ -27,21 +35,23 @@ class Encoder(object):
         with tf.variable_scope(self.name, reuse=self.reuse):
             x = gaussian_noise_layer(inputs, 0.15)
             x = self._conv(x, 128, 'conv1a', 3, 1, training)
-            x = self._conv(x, 128, 'conv1b', 3, 1, training)
-            x = self._conv(x, 128, 'conv1c', 3, 1, training) # 32 x 32
+            x = self._convwn(x, 128, 'conv1b', 3, 1, training)
+            x = self._convwn(x, 128, 'conv1c', 3, 1, training) # 32 x 32
             x = tf.layers.max_pooling2d(x, 2, 2, name='pool1')
             x = tf.layers.dropout(x, name='drop1', training=training)
 
-            x = self._conv(x, 256, 'conv2a', 3, 1, training)
-            x = self._conv(x, 256, 'conv2b', 3, 1, training)
-            x = self._conv(x, 256, 'conv2c', 3, 1, training) # 16 x 16
+            x = self._convwn(x, 256, 'conv2a', 3, 1, training)
+            x = self._convwn(x, 256, 'conv2b', 3, 1, training)
+            x = self._convwn(x, 256, 'conv2c', 3, 1, training) # 16 x 16
             x = tf.layers.max_pooling2d(x, 2, 2, name='pool2')
             x = tf.layers.dropout(x, name='drop2', training=training)
 
-            x = self._conv(x, 512, 'conv3a', 3, 1, training, 'VALID')
-            x = self._conv(x, 256, 'conv3b', 1, 1, training)
-            x = self._conv(x, self.metric_dims, 'conv3c', 1, 1, training) # 8 x 8
-            x = globalAvgPool(x, 'global_avg')
+            x = self._convwn(x, 512, 'conv3a', 3, 1, training, 'VALID')
+            x = self._convwn(x, 256, 'conv3b', 1, 1, training)
+            x = self._convwn(x, self.metric_dims, 'conv3c', 1, 1, training) # 8 x 8
+
+            with tf.variable_scope('global_avg'):
+                x = tf.reduce_mean(x, axis=[1, 2])
 
             with tf.variable_scope('fc1'):
                 y = tf.layers.dense(x, self.num_attrs, name='y_predict')
