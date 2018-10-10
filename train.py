@@ -15,7 +15,8 @@ from datasets import load_data, mnist, svhn, cifar10npz as cifar10
 models = {
     'cvaegan': CVAEGAN,
     'trivaegan': TriVAEGAN,
-    'trivgg': TriVGG
+    'trivgg': TriVGG,
+    'itgan': iTGAN
 }
 
 def main(_):

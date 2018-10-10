@@ -5,6 +5,7 @@ import tensorflow as tf
 from types import SimpleNamespace
 from .base import CondBaseModel
 from .utils import *
+from .nn import conv2d, lRelu, globalAvgPool
 #from ..appprop import appProp
 
 class Encoder(object):
@@ -17,11 +18,9 @@ class Encoder(object):
         self.num_attrs = num_attrs
         self.name = 'encoder'
 
-    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='same'):
-        with tf.variable_scope(name):
-            x = tf.layers.conv2d(inputs, filter, (w, w), (s, s), padding)
-            x = tf.layers.batch_normalization(x, training=training)
-            x = lrelu(x, 0.1)
+    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='SAME'):
+        x = conv2d(inputs, filter, [w, w], stride=[s, s], pad=padding, nonlinearity=lRelu,
+                   use_weight_normalization=True, use_mean_only_batch_normalization=True, name=name)
         return x
 
     def __call__(self, inputs, training=True):
@@ -39,12 +38,10 @@ class Encoder(object):
             x = tf.layers.max_pooling2d(x, 2, 2, name='pool2')
             x = tf.layers.dropout(x, name='drop2', training=training)
 
-            x = self._conv(x, 512, 'conv3a', 3, 1, training, 'valid')
+            x = self._conv(x, 512, 'conv3a', 3, 1, training, 'VALID')
             x = self._conv(x, 256, 'conv3b', 1, 1, training)
             x = self._conv(x, self.metric_dims, 'conv3c', 1, 1, training) # 8 x 8
-
-            with tf.variable_scope('global_avg'):
-                x = tf.reduce_mean(x, axis=[1, 2])
+            x = globalAvgPool(x, 'global_avg')
 
             with tf.variable_scope('fc1'):
                 y = tf.layers.dense(x, self.num_attrs, name='y_predict')
@@ -185,7 +182,7 @@ class Discriminator(object):
         return y, f
 
 
-class TriVGG(CondBaseModel):
+class iTGAN(CondBaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
@@ -193,7 +190,7 @@ class TriVGG(CondBaseModel):
         trainer = None,
         **kwargs
     ):
-        super(TriVGG, self).__init__(input_shape=input_shape, name=name, **kwargs)
+        super(iTGAN, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
         self.trainer = trainer
 
