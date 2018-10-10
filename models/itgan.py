@@ -5,7 +5,7 @@ import tensorflow as tf
 from types import SimpleNamespace
 from .base import CondBaseModel
 from .utils import *
-from .nn import conv2d
+from .wn import WeightNorm
 #from ..appprop import appProp
 
 class Encoder(object):
@@ -19,16 +19,18 @@ class Encoder(object):
         self.name = 'encoder'
 
 
-    def _conv(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='same'):
+    def _conv(self, inputs, filters, name = None, w = 5, s = 1, training=True, padding='same'):
         with tf.variable_scope(name):
-            x = tf.layers.conv2d(inputs, filter, (w, w), (s, s), padding)
+            x = tf.layers.conv2d(inputs, filters, (w, w), (s, s), padding)
             x = tf.layers.batch_normalization(x, training=training)
             x = lrelu(x, 0.1)
         return x
 
-    def _convwn(self, inputs, filter, name = None, w = 5, s = 1, training=True, padding='SAME'):
-        x = conv2d(inputs, filter, [w, w], stride=[s, s], pad=padding, nonlinearity=lrelu,
-                   use_weight_normalization=True, use_mean_only_batch_normalization=True, name=name)
+    def _convwn(self, inputs, filters, name = None, w = 5, s = 1, training=True, padding='same'):
+        with tf.variable_scope(name):
+            x = tf.keras.layers.Conv2D(filters, (w, w), (s, s), padding)(inputs)
+            x = tf.layers.batch_normalization(x, training=training)
+            x = lrelu(x, 0.1)
         return x
 
     def __call__(self, inputs, training=True):
