@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from .base import CondBaseModel
 from .utils import *
 from .wn import WeightNorm
-#from ..appprop import appProp
 
 class Encoder(object):
     def __init__(self, input_shape, z_dims, metric_dims, num_attrs):
@@ -18,7 +17,6 @@ class Encoder(object):
         self.num_attrs = num_attrs
         self.name = 'encoder'
 
-
     def _conv(self, inputs, filters, name = None, w = 5, s = 1, training=True, padding='same'):
         with tf.variable_scope(name):
             x = tf.layers.conv2d(inputs, filters, (w, w), (s, s), padding)
@@ -28,7 +26,7 @@ class Encoder(object):
 
     def _convwn(self, inputs, filters, name = None, w = 5, s = 1, training=True, padding='same'):
         with tf.variable_scope(name):
-            x = tf.keras.layers.Conv2D(filters, (w, w), (s, s), padding)(inputs)
+            x = WeightNorm(tf.layers.Conv2D(filters, (w, w), (s, s), padding))(inputs)
             x = tf.layers.batch_normalization(x, training=training)
             x = lrelu(x, 0.1)
         return x

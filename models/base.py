@@ -38,7 +38,6 @@ class BaseModel(metaclass=ABCMeta):
         self.resume = kwargs['resume']
 
         self.sess = tf.Session()
-        tf.keras.backend.set_session(self.sess)
         self.writer = None
         self.saver = tf.train.Saver()
         self.summary = None
