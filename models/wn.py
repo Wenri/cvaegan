@@ -55,7 +55,6 @@ class WeightNorm(Wrapper):
                 '`Layer` instance. You passed: {input}'.format(input=layer))
 
         self.data_init = data_init
-        self.initialized = False
 
         super(WeightNorm, self).__init__(layer, **kwargs)
         self._track_checkpointable(layer, name='layer')
@@ -74,8 +73,20 @@ class WeightNorm(Wrapper):
             flat = array_ops.reshape(weights, [-1, self.layer_depth])
             return array_ops.reshape(norm(flat, axis=0), (self.layer_depth,))
 
+    def _assign_initialize(self):
+        if not context.executing_eagerly():
+            set_initialized = tf.assign(self.layer.initialized, True)
+            return tf.Print(set_initialized, [set_initialized], "data_dep_init for (%s)" % self.layer.g.name)
+        else:
+            self.layer.initialized = True
+        return True
+
     def _data_dep_init(self, inputs):
-        def _init():
+
+        def _do_init():
+            if not self.data_init:
+                return self._assign_initialize()
+
             """Data dependent initialization for eager execution"""
             from tensorflow.python.ops.nn import moments
             from tensorflow.python.ops.math_ops import sqrt
@@ -90,18 +101,14 @@ class WeightNorm(Wrapper):
 
             # Assign data dependent init values
             self.layer.activation = activation
+
             with tf.control_dependencies([
                 self.layer.g.assign(self.layer.g * scale_init),
                 self.layer.bias.assign(-m_init * scale_init)
             ]):
-                if not context.executing_eagerly():
-                    set_initialized = tf.assign(self.initialized, True)
-                    return tf.Print(set_initialized, [set_initialized], "data_dep_init")
-                else:
-                    self.initialized = True
-            return True
+                return self._assign_initialize()
 
-        return utils.smart_cond(self.initialized, lambda: self.initialized, _init)
+        return utils.smart_cond(self.layer.initialized, lambda: tf.constant(True), _do_init)
 
 
     def build(self, input_shape):
@@ -131,20 +138,22 @@ class WeightNorm(Wrapper):
                 dtype=self.layer.kernel.dtype,
                 trainable=True)
 
-            if not context.executing_eagerly():
-                self.initialized = tf.Variable(
-                    self.initialized,
+            if context.executing_eagerly():
+                self.layer.initialized = False
+            else:
+                self.layer.initialized = self.layer.add_variable(
                     name="initialized",
-                    #use_resource=True,
-                    trainable=True
+                    shape=[],
+                    initializer=tf.constant_initializer(False, tf.bool),
+                    use_resource=True,
+                    dtype=tf.bool,
+                    trainable=False
                 )
 
             def assign_init_norm():
-                init_norm = self._init_norm(self.layer.v)
-                init_norm = tf.Print(init_norm, [init_norm], "Init Norm")
-                return self.layer.g.assign(init_norm)
+                return self.layer.g.assign(self._init_norm(self.layer.v))
 
-            maybe_init_norm = utils.smart_cond(self.initialized, lambda: self.layer.g, assign_init_norm)
+            maybe_init_norm = utils.smart_cond(self.layer.initialized, lambda: self.layer.g, assign_init_norm)
             with tf.control_dependencies([maybe_init_norm]):
                 self._compute_weights()
 
