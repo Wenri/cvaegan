@@ -26,7 +26,7 @@ class Encoder(object):
 
     def _convwn(self, inputs, filters, name = None, w = 5, s = 1, training=True, padding='same'):
         with tf.variable_scope(name):
-            x = WeightNorm(tf.layers.Conv2D(filters, (w, w), (s, s), padding))(inputs)
+            x = WeightNorm(tf.layers.Conv2D(filters, (w, w), (s, s), padding), training=training)(inputs)
             x = tf.layers.batch_normalization(x, training=training)
             x = lrelu(x, 0.1)
         return x

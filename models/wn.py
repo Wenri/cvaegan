@@ -48,13 +48,15 @@ class WeightNorm(Wrapper):
       ValueError: If `Layer` does not contain a `kernel` of weights
       NotImplementedError: If `data_init` is True and running graph execution
     """
-    def __init__(self, layer, data_init=True, **kwargs):
+    def __init__(self, layer, data_init=True, mean_only_bn=True, training=True, **kwargs):
         if not isinstance(layer, Layer):
             raise ValueError(
                 'Please initialize `WeightNorm` layer with a '
                 '`Layer` instance. You passed: {input}'.format(input=layer))
 
         self.data_init = data_init
+        self.mean_only_bn = mean_only_bn
+        self.training = training
 
         super(WeightNorm, self).__init__(layer, **kwargs)
         self._track_checkpointable(layer, name='layer')
@@ -73,19 +75,19 @@ class WeightNorm(Wrapper):
             flat = array_ops.reshape(weights, [-1, self.layer_depth])
             return array_ops.reshape(norm(flat, axis=0), (self.layer_depth,))
 
-    def _assign_initialize(self):
+    def _assign_initialize(self, value):
         if not context.executing_eagerly():
-            set_initialized = tf.assign(self.layer.initialized, True)
-            return tf.Print(set_initialized, [set_initialized], "data_dep_init for (%s)" % self.layer.g.name)
+            set_initialized = tf.assign(self.layer.initialized, tf.constant(value))
+            return tf.Print(set_initialized, [set_initialized], "assign_initialize for (%s)" % self.layer.g.name)
         else:
-            self.layer.initialized = True
-        return True
+            self.layer.initialized = value
+        return value
 
     def _data_dep_init(self, inputs):
 
         def _do_init():
             if not self.data_init:
-                return self._assign_initialize()
+                return self._assign_initialize(True)
 
             """Data dependent initialization for eager execution"""
             from tensorflow.python.ops.nn import moments
@@ -101,15 +103,38 @@ class WeightNorm(Wrapper):
 
             # Assign data dependent init values
             self.layer.activation = activation
+            assign_ops = [self.layer.g.assign(self.layer.g * scale_init)]
+            if self.layer.pop_mean is not None:
+                assign_ops.append(self.layer.pop_mean.assign(-m_init * scale_init))
+            elif self.layer.bias is not None:
+                assign_ops.append(self.layer.bias.assign(-m_init * scale_init))
 
-            with tf.control_dependencies([
-                self.layer.g.assign(self.layer.g * scale_init),
-                self.layer.bias.assign(-m_init * scale_init)
-            ]):
-                return self._assign_initialize()
+            with tf.control_dependencies(assign_ops):
+                return self._assign_initialize(True)
 
         return utils.smart_cond(self.layer.initialized, lambda: tf.constant(True), _do_init)
 
+    def _mean_only_batch_norm(self, x, decay=0.9):
+        '''
+        input comes in which is t=(g*V/||V||)*x
+        deterministic : separates training and testing phases
+        '''
+        with tf.variable_scope('meanOnlyBatchNormalization'):
+            moving_mean = self.layer.pop_mean
+            b = self.layer.bias
+            if not self.training:
+                # testing phase, return the result with the accumulated batch mean
+                return tf.nn.bias_add(x, b - moving_mean, data_format='NHWC')
+            else:
+                from tensorflow.python.ops.nn import moments
+                # compute the current minibatch mean
+                # using convolutional layer as input
+                m, _ = moments(x, self.norm_axes)
+
+                # update minibatch mean variable
+                moving_mean_op = moving_mean.assign(moving_mean * decay + m * (1 - decay))
+                with tf.control_dependencies([moving_mean_op]):
+                    return tf.nn.bias_add(x, tf.Print(b - m, [b,m,moving_mean], 'Mean'), data_format='NHWC')
 
     def build(self, input_shape):
         """Build `Layer`"""
@@ -130,13 +155,27 @@ class WeightNorm(Wrapper):
             self.layer_depth = int(self.layer.kernel.shape[-1])
             self.norm_axes = list(range(self.layer.kernel.shape.ndims - 1))
 
+            if self.mean_only_bn:
+                self.layer.use_bias = False
+                self.layer.pop_mean = self.layer.add_variable(
+                    name="pop_mean",
+                    shape=(self.layer_depth,),
+                    initializer=initializers.get('zeros'),
+                    use_resource=True,
+                    dtype=self.layer.kernel.dtype,
+                    trainable=False)
+            else:
+                self.layer.pop_mean = None
+
             self.layer.v = self.layer.kernel
             self.layer.g = self.layer.add_variable(
                 name="g",
                 shape=(self.layer_depth,),
                 initializer=initializers.get('ones'),
+                use_resource=True,
                 dtype=self.layer.kernel.dtype,
                 trainable=True)
+
 
             if context.executing_eagerly():
                 self.layer.initialized = False
@@ -169,6 +208,9 @@ class WeightNorm(Wrapper):
             if context.executing_eagerly():
                 self._compute_weights()  # Recompute weights for each forward pass
             output = self.layer.call(inputs)
+
+        if self.mean_only_bn:
+            output = self._mean_only_batch_norm(output)
 
         return output
 
