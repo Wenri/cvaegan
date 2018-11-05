@@ -10,7 +10,7 @@ matplotlib.use('Agg')
 import tensorflow as tf
 
 from models import *
-from datasets import load_data, mnist, svhn, cifar10npz as cifar10
+from datasets import load_data, mnist, svhn, cifar10 #cifar10npz as cifar10
 
 models = {
     'cvaegan': CVAEGAN,

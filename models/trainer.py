@@ -41,21 +41,28 @@ class SemiTrainer(object):
         self.test_mode = False
         self.data_metric = None
         self.data_labels = None
+        self.num_semi = 0
+        self.semi_mask = None
 
-    def init_semi_perm(self, semi_ratio = 0.9):
-        semi_tgts, mask_train, mask_confidence = self.datasets.get_semi_labels()
-        self.semi_mask = mask_train == 0
+    def init_semi_perm(self):
         self.perm = np.random.permutation(len(self.datasets))
-        self.num_semi = np.count_nonzero(self.semi_mask)
-        self.datasets.attrs[self.semi_mask, :] = 0
-        semi_confidence_mask = np.logical_and(self.semi_mask, mask_confidence)
-        self.datasets.attrs[semi_confidence_mask, :] = 0.5 * semi_tgts[semi_confidence_mask, :]
+
+        if not hasattr(self.data_labels, 'get_semi_labels'):
+            self.semi_mask = None
+            self.num_semi = 0
+        else:
+            semi_tgts, mask_train, mask_confidence = self.datasets.get_semi_labels()
+            self.semi_mask = mask_train == 0
+            self.num_semi = np.count_nonzero(self.semi_mask)
+            self.datasets.attrs[self.semi_mask, :] = 0
+            semi_confidence_mask = np.logical_and(self.semi_mask, mask_confidence)
+            self.datasets.attrs[semi_confidence_mask, :] = 0.5 * semi_tgts[semi_confidence_mask, :]
 
         print("Num Semi: %d" % self.num_semi)
 
         return self.perm
 
-    def shuffle_semi_perm(self):
+    def shuffle_perm(self):
         if self.perm is None:
             return self.init_semi_perm()
         self.perm = np.random.permutation(len(self.datasets))
@@ -199,7 +206,7 @@ class SemiTrainer(object):
             for e in range(self.current_epoch.eval(), epochs):
                 self.data_metric = np.zeros((len(self.datasets), model.metric_dims), dtype=np.float32)
                 self.data_labels = np.zeros((len(self.datasets), model.num_attrs), dtype=np.float32)
-                self.shuffle_semi_perm()
+                self.shuffle_perm()
                 self.start_time = time.time()
                 for b in range(self.current_batch.eval(), num_data, self.batchsize):
                     # Update batch index
